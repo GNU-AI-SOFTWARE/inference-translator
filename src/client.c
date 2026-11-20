@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -169,6 +170,24 @@ cmd_status (void)
 #define FETCH_MAX_BODY  (256 * 1024)
 #define FETCH_PREVIEW   4000
 
+/* find_httpfs — locate the httpfs translator binary: $HTTPFS_BIN,
+   then the usual install/build locations, then PATH (settrans will
+   resolve a bare name). */
+static const char *
+find_httpfs (void)
+{
+    static char buf[4096];
+    const char *env = getenv ("HTTPFS_BIN");
+    if (env != NULL && env[0] != '\0' && access (env, X_OK) == 0)
+        return env;
+    if (access ("/usr/local/bin/httpfs", X_OK) == 0)
+        return "/usr/local/bin/httpfs";
+    if (access ("/root/httpfs-translator/src/httpfs", X_OK) == 0)
+        return "/root/httpfs-translator/src/httpfs";
+    (void) buf;
+    return "httpfs";
+}
+
 /* shell_quote — copy S into DST as a single-quoted /bin/sh word. */
 static void
 shell_quote (char *dst, size_t dstsz, const char *s)
@@ -208,13 +227,16 @@ cmd_fetch (const char *arg)
       }
 
     char q[2048];
-    char cmd[2600];
+    char b[2048];
+    char cmd[4600];
     shell_quote (q, sizeof q, arg);
+    shell_quote (b, sizeof b, find_httpfs ());
     snprintf (cmd, sizeof cmd,
-              "settrans -g " FETCH_MOUNT " 2>/dev/null; "
+              "settrans -fg " FETCH_MOUNT " 2>/dev/null; "
+              "sleep 1; "
               "mkdir -p " FETCH_MOUNT "; "
-              "settrans -a " FETCH_MOUNT " httpfs %s", q);
-    printf ("→ mount httpfs %s sur " FETCH_MOUNT "\n", arg);
+              "settrans -a " FETCH_MOUNT " %s %s", b, q);
+    printf ("→ mount %s %s sur " FETCH_MOUNT "\n", b, arg);
     if (system (cmd) != 0)
       {
         printf ("  échec du montage (settrans + httpfs requis, root, Hurd)\n");
@@ -236,11 +258,26 @@ cmd_fetch (const char *arg)
       }
     if (status < 0)
       {
-        printf ("  pas de réponse de " FETCH_MOUNT "/status "
-                "(translator mort ?)\n");
+        printf ("  " FETCH_MOUNT "/status illisible après ~15 s\n"
+                "  translator: ");
+        fflush (stdout);
+        system ("settrans -p " FETCH_MOUNT " 2>&1 | head -1");
+        printf ("  (translator vivant mais sonde HEAD en échec -> DNS/réseau ?\n"
+                "   essayez une IP directe: /fetch http://93.184.216.34)\n");
         return;
       }
     printf ("  status HTTP: %ld\n", status);
+    if (status == 0)
+      {
+        /* "000": the HEAD probe failed; /page/headers holds the
+           transport error text (curl) thanks to the httpfs fix. */
+        char errbuf[512];
+        ssize_t en = read_node_m (FETCH_MOUNT, "headers", errbuf,
+                                  sizeof errbuf);
+        printf ("  transport: %s",
+                en > 0 ? errbuf : "erreur inconnue\n");
+        return;
+      }
 
     char *body = malloc (FETCH_MAX_BODY + 1);
     if (body == nullptr)
@@ -262,6 +299,39 @@ cmd_fetch (const char *arg)
     fwrite (body, 1, show, stdout);
     printf ("\n");
     free (body);
+}
+
+/* /stats - real-time CPU/memory/IO display: redraw every second,
+   any key leaves the monitor. */
+static void
+cmd_stats (void)
+{
+    char buf[2048];
+    bool color = inf_client_color ();
+    if (color)
+        printf ("\033[2J\033[H");           /* clear + home */
+    for (;;)
+      {
+        inf_client_stats (buf, sizeof buf);
+        if (color)
+            printf ("\033[H");              /* home, redraw in place */
+        printf ("inference - /stats (une touche pour quitter)\n%s", buf);
+        fflush (stdout);
+        fd_set fds;
+        FD_ZERO (&fds);
+        FD_SET (STDIN_FILENO, &fds);
+        struct timeval tv = { 1, 0 };
+        if (select (STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv) > 0)
+          {
+            char c;
+            if (read (STDIN_FILENO, &c, 1) <= 0)
+                break;
+            break;                          /* any key leaves */
+          }
+      }
+    if (color)
+        printf ("\033[2J\033[H");
+    printf ("\n");
 }
 
 static void
@@ -521,7 +591,7 @@ usage (FILE *out)
     fprintf (out,
              "Usage: inference [--mount DIR] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /fetch URL /status /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /status /stats /help /quit.\n"
              "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
 }
 
@@ -633,6 +703,9 @@ main (int argc, char **argv)
             break;
           case INF_CMD_FETCH:
             cmd_fetch (arg);
+            break;
+          case INF_CMD_STATS:
+            cmd_stats ();
             break;
           case INF_CMD_HELP:
             cmd_help ();

@@ -18,6 +18,7 @@ const struct inf_action inf_actions[] =
     { "/submit", "analyser le prompt et soumettre la requête" },
     { "/fetch",  "télécharger une page HTML via httpfs (montée sur /page)" },
     { "/status", "afficher l'état de l'interface" },
+    { "/stats",  "CPU/mémoire/IO en temps réel (une touche pour quitter)" },
     { "/help",   "afficher cette aide" },
     { "/quit",   "quitter" },
 };

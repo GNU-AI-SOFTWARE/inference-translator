@@ -23,6 +23,12 @@ inference_SOURCES = client.c
 inference_CPPFLAGS = $(AM_CPPFLAGS)
 inference_LDADD = libinfcore.a
 
+# /stats uses Mach host statistics on Hurd (/proc elsewhere).
+if ON_HURD
+inference_CPPFLAGS += -DON_HURD
+inference_LDADD += -lmachuser -lpthread
+endif
+
 noinst_HEADERS = translator.h
 
 # --- The binary face, per host -----------------------------------------

@@ -73,11 +73,25 @@ puis un aperçu (4000 octets) du corps lu dans
 .IR /page/content ).
 Nécessite root, GNU/Hurd et
 .B httpfs
-installé.  Pour obtenir le texte extrait d'une page HTML, empiler
+; le binaire est cherché dans
+.BR $HTTPFS_BIN ,
+.I /usr/local/bin/httpfs,
+.I /root/httpfs-translator/src/httpfs,
+puis dans le
+.BR PATH .
+Pour obtenir le texte extrait d'une page HTML, empiler
 .B htmlfs
 :
 « settrans -a /page/text htmlfs /page/content » puis
 « cat /page/text ».
+.TP
+.B /stats
+Affichage temps réel de l'utilisation CPU, mémoire et entrées/sorties
+(disque, réseau), redessiné chaque seconde ; une touche quelconque
+quitte l'affichage.  Sources : /proc/stat, /proc/meminfo,
+/proc/diskstats, /proc/net/dev sur Linux ; statistiques Mach
+(host_statistics, host_basic_info, vm_info) sur Hurd, où l'IO affiche
+« n/d » (pas de /proc).
 .TP
 .B /status
 Relit et affiche
