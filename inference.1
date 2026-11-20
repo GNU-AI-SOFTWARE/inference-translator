@@ -135,9 +135,86 @@ Forcer la tâche puis soumettre via le client :
 .B "/task summarize"
 .B "résume https://example.org/article en 5 points"
 .B "/submit"
+.SH UTILISER LE LLM (PILE GNU AI)
+Le client
+.B inference
+n'est que la face avant de la pile GNU AI.  Le « LLM » est l'orchestrateur
+monté sur
+.BR /orchestrate ,
+qui pilote des instances
+.BR /llm<N>
+(translator
+.B sigmoid-neuron-translator
+de neuron-translator), persiste la trace dans
+.B /db
+(translator
+.B db-translator
+sur PostgreSQL) et transporte du HTTP via
+.B /web
+(
+.BR httpfs ).
+Sous GNU/Hurd, le script
+.B hurd-vm/launch_inference.py
+du dépôt monte toute la pile (settrans) puis lance ce client.
+.PP
+Un run se lance en écrivant un descripteur (une ligne JSON) sur
+.IR /orchestrate ;
+le résultat se lit sur le même nœud :
+.TP
+.B descripteur (écriture sur /orchestrate)
+.RS
+.EX
+{"run": {"instances": 2, "topologies": ["2,4,1", "2,8,1"], "input": [0.5, 0.3], "aggregate": "majority"}}
+.EE
+.RE
+.IP "instances" 4
+entier requis, 1..64 : nombre d'instances /llm<N> montées par le scheduler.
+.IP "topologies" 4
+tableau requis (≥ 1 chaîne, ≤ 63 octets chacune), cyclé si moins que
+.IR instances ;
+« 2,4,1 » = 3 couches de tailles 2, 4, 1.
+.IP "input" 4
+tableau de nombres, 1..64 valeurs : vecteur d'entrée de chaque instance.
+.IP "aggregate" 4
+.B majority
+(vote) ou
+.BR mean .
+Une clé inconnue ou une valeur hors bornes rend
+« {"invalid": "<raison>"} », jamais une erreur POSIX.
+.TP
+.B résultat (lecture de /orchestrate, type 3)
+.RS
+.EX
+{"run_id": 12, "state": "done", "aggregate_strategy": "majority", "output": "[0.0, 1.0]", "confidence": 0.667}
+.EE
+.RE
+.TP
+.B état (écriture de {"command": \[dq]status\[dq]} puis lecture, type 2)
+.RS
+.EX
+{"run_id": 12, "state": "done", "instances": [{"id": 1, "topology": "2,4,1", "state": "done"}]}
+.EE
+.RE
+.TP
+.B dernier résultat
+.RS
+Écrire « {"command": \[dq]result\[dq]} » sur
+.I /orchestrate
+puis relire le nœud.
+.RE
+.PP
+L'exécution est synchrone en phase 1 : le write rend la main quand le run
+est terminé.  Chaque instance répond sur
+.IR /llm<N>
+(texte d'état « [i]: valeur »), et la trace est dans PostgreSQL :
+.BR runs ,
+.BR run_instances
+(voir
+.IR /db ).
 .SH VOIR AUSSI
 .BR settrans (1),
 .BR inference-translator (1),
-le SPEC.md du projet (contrats gelés du trio JSON request/status/result).
+les SPEC.md du projet (contrats gelés du trio JSON request/status/result,
+descripteur de run et nœuds /db, /llm<N>, /web).
 .SH LICENCE
 GPL-3.0-or-later.
