@@ -256,8 +256,12 @@ cmd_fetch (const char *arg)
       }
     if (status < 0)
       {
-        printf ("  pas de réponse de " FETCH_MOUNT "/status "
-                "(translator mort ?)\n");
+        printf ("  " FETCH_MOUNT "/status illisible après ~15 s\n"
+                "  translator: ");
+        fflush (stdout);
+        system ("settrans -p " FETCH_MOUNT " 2>&1 | head -1");
+        printf ("  (translator vivant mais sonde HEAD en échec -> DNS/réseau ?\n"
+                "   essayez une IP directe: /fetch http://93.184.216.34)\n");
         return;
       }
     printf ("  status HTTP: %ld\n", status);
