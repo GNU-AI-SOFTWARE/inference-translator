@@ -59,6 +59,26 @@ requête : écrit
 puis affiche
 .IR request ", " status .
 .TP
+.BI /fetch " URL"
+Télécharge une page (HTML ou autre) via le translator
+.B httpfs
+monté à la volée sur
+.BR /page :
+« settrans -a /page httpfs URL ».  Attend la sonde HEAD, affiche le code
+HTTP lu dans
+.I /page/status
+puis un aperçu (4000 octets) du corps lu dans
+.I /page/content
+(256 Ko max en mémoire ; la page complète reste lisible dans
+.IR /page/content ).
+Nécessite root, GNU/Hurd et
+.B httpfs
+installé.  Pour obtenir le texte extrait d'une page HTML, empiler
+.B htmlfs
+:
+« settrans -a /page/text htmlfs /page/content » puis
+« cat /page/text ».
+.TP
 .B /status
 Relit et affiche
 .IR <montage>/status .

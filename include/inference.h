@@ -199,6 +199,7 @@ enum inf_client_cmd
     INF_CMD_TASK,
     INF_CMD_SUBMIT,
     INF_CMD_STATUS,
+    INF_CMD_FETCH,
     INF_CMD_HELP,
     INF_CMD_QUIT,
     INF_CMD_UNKNOWN
