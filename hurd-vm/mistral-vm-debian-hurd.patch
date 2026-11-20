@@ -235,10 +235,10 @@ index 1a602fd..d30c67d 100644
              if vm.proc.poll() is None:
 diff --git a/inject-src.sh b/inject-src.sh
 new file mode 100755
-index 0000000..1d701e1
+index 0000000..7edecd7
 --- /dev/null
 +++ b/inject-src.sh
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,54 @@
 +#!/bin/sh
 +# SPDX-License-Identifier: GPL-3.0-or-later
 +# SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
@@ -288,6 +288,8 @@ index 0000000..1d701e1
 +frc=$?
 +set -e
 +[ "$frc" -lt 4 ] || { echo "e2fsck failed (rc=$frc) on the extracted partition" >&2; exit 1; }
++# rm first: debugfs "write" refuses to overwrite an existing file
++"$debugfs" -w -R "rm /root/$(basename "$file")" "$part" >/dev/null 2>&1 || true
 +"$debugfs" -w -R "write $(readlink -f "$file") /root/$(basename "$file")" "$part"
 +dd if="$part" of="$ci" bs=512 seek="$lba" conv=notrunc status=none
 +echo "injected $file into $ci as /root/$(basename "$file")"

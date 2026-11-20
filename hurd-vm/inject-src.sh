@@ -47,6 +47,8 @@ set +e
 frc=$?
 set -e
 [ "$frc" -lt 4 ] || { echo "e2fsck failed (rc=$frc) on the extracted partition" >&2; exit 1; }
+# rm first: debugfs "write" refuses to overwrite an existing file
+"$debugfs" -w -R "rm /root/$(basename "$file")" "$part" >/dev/null 2>&1 || true
 "$debugfs" -w -R "write $(readlink -f "$file") /root/$(basename "$file")" "$part"
 dd if="$part" of="$ci" bs=512 seek="$lba" conv=notrunc status=none
 echo "injected $file into $ci as /root/$(basename "$file")"
