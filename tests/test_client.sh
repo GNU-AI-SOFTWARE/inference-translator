@@ -22,8 +22,7 @@ say() { printf '%s\n' "$*"; }
 fail() { say "test_client: FAIL: $*"; FAIL=1; }
 FAIL=0
 
-BIN=${1:-./src/inference}
-[ -x "$BIN" ] || BIN=./src/inference
+BIN=${1:-../src/inference}
 [ -x "$BIN" ] || { say "test_client: SKIP: no built client at $BIN"; exit 77; }
 command -v script >/dev/null 2>&1 || { say "test_client: SKIP: no script(1)"; exit 77; }
 
