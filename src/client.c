@@ -169,6 +169,24 @@ cmd_status (void)
 #define FETCH_MAX_BODY  (256 * 1024)
 #define FETCH_PREVIEW   4000
 
+/* find_httpfs — locate the httpfs translator binary: $HTTPFS_BIN,
+   then the usual install/build locations, then PATH (settrans will
+   resolve a bare name). */
+static const char *
+find_httpfs (void)
+{
+    static char buf[4096];
+    const char *env = getenv ("HTTPFS_BIN");
+    if (env != NULL && env[0] != '\0' && access (env, X_OK) == 0)
+        return env;
+    if (access ("/usr/local/bin/httpfs", X_OK) == 0)
+        return "/usr/local/bin/httpfs";
+    if (access ("/root/httpfs-translator/src/httpfs", X_OK) == 0)
+        return "/root/httpfs-translator/src/httpfs";
+    (void) buf;
+    return "httpfs";
+}
+
 /* shell_quote — copy S into DST as a single-quoted /bin/sh word. */
 static void
 shell_quote (char *dst, size_t dstsz, const char *s)
@@ -208,13 +226,15 @@ cmd_fetch (const char *arg)
       }
 
     char q[2048];
-    char cmd[2600];
+    char b[2048];
+    char cmd[4600];
     shell_quote (q, sizeof q, arg);
+    shell_quote (b, sizeof b, find_httpfs ());
     snprintf (cmd, sizeof cmd,
               "settrans -g " FETCH_MOUNT " 2>/dev/null; "
               "mkdir -p " FETCH_MOUNT "; "
-              "settrans -a " FETCH_MOUNT " httpfs %s", q);
-    printf ("→ mount httpfs %s sur " FETCH_MOUNT "\n", arg);
+              "settrans -a " FETCH_MOUNT " %s %s", b, q);
+    printf ("→ mount %s %s sur " FETCH_MOUNT "\n", b, arg);
     if (system (cmd) != 0)
       {
         printf ("  échec du montage (settrans + httpfs requis, root, Hurd)\n");
