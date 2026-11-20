@@ -203,6 +203,8 @@ enum inf_client_cmd
     INF_CMD_STATS,
     INF_CMD_HELP,
     INF_CMD_QUIT,
+    INF_CMD_LEARN,
+    INF_CMD_READ_CODE,
     INF_CMD_UNKNOWN
 };
 
@@ -258,5 +260,31 @@ size_t inf_json_highlight (char *out, size_t outsz, const char *json,
                            bool color);
 size_t inf_text_highlight (char *out, size_t outsz, const char *text,
                            bool color);
+
+/* A fetchable URL: http:// or https:// followed by a non-empty host
+ * (the frozen INF_URL_REGEX requires a non-space run after the
+ * scheme; here we additionally reject a bare "/" or "?" as host). */
+bool inf_url_valid (const char *url);
+
+/* Training element built from a fetched page (data-base-translator
+ * contract, schema.sql `training_data`): SHA-256 of the extracted
+ * text as anti-duplicate checksum, then the JSON write payload for
+ * /db.  All pure and bounded. */
+void inf_sha256_hex (char out[65], const unsigned char *data, size_t len);
+size_t inf_html_to_text (char *out, size_t outsz, const char *html);
+size_t inf_training_record (char *out, size_t outsz, const char *url,
+                            long http_status, const char *text,
+                            const char *checksum_hex);
+
+/* /read-code: detect the programming language of a fetched page from
+ * the URL extension, else the shebang, else "text".  Returns a static
+ * language name (never NULL). */
+const char *inf_lang_detect (const char *url, const char *content);
+
+/* /read-code: render source code with ANSI colors when COLOR is true
+ * (comments dim, strings green, numbers magenta, keywords bold blue);
+ * verbatim copy when false.  Bounded by outsz, NUL-terminated. */
+size_t inf_code_highlight (char *out, size_t outsz, const char *code,
+                           const char *lang, bool color);
 
 #endif /* INFERENCE_H */

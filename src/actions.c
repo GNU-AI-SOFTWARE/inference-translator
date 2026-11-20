@@ -21,6 +21,8 @@ const struct inf_action inf_actions[] =
     { "/stats",  "CPU/mémoire/IO en temps réel (une touche pour quitter)" },
     { "/help",   "afficher cette aide" },
     { "/quit",   "quitter" },
+    { "/learn",  "enregistrer les URL de la requête comme éléments d'entraînement dans /db (training_data)" },
+    { "/read-code", "lire le code d'une URL : langage détecté + coloration syntaxique" },
 };
 
 const size_t inf_actions_count =
