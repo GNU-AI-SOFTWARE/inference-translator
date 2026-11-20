@@ -257,7 +257,8 @@ stats_hurd (char *p, size_t left)
         unsigned long long used = total;
         if (host_statistics64 (host, HOST_VM_INFO64,
                                (host_info64_t) &vm, &count) == KERN_SUCCESS)
-            used = total - (unsigned long long) vm.free_count * ps;
+            used = total - ((unsigned long long) vm.free_count
+                            + vm.inactive_count) * ps;
         PUT ("MEM  : %llu / %llu Mio (%.1f %%)\n",
              used >> 20, total >> 20, total ? 100.0 * (double) used / (double) total : 0.0);
       }
@@ -483,7 +484,8 @@ inf_client_stats_line (char *out, size_t outsz)
             total = basic.memory_size;
             if (host_statistics64 (host, HOST_VM_INFO64,
                                    (host_info64_t) &vm, &count) == KERN_SUCCESS)
-                used = total - (unsigned long long) vm.free_count * ps;
+                used = total - ((unsigned long long) vm.free_count
+                                + vm.inactive_count) * ps;
             else
                 used = total;
           }
