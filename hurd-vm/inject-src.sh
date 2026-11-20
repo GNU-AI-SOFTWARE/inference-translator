@@ -11,9 +11,10 @@
 #   ./inject-src.sh <source-image> <file-to-inject>   (image arg optional)
 #   e.g. ./inject-src.sh ~/inference-src.tar.gz
 #
-# Requires: no VM running on the image, e2fsprogs, python3 (uses
-# hurd_vm.root_partition).  The CI image is modified in place; pass
-# --fresh to hurd_vm.py afterwards to rebuild it from scratch.
+# Requires: no VM running on the image, e2fsprogs (e2fsck/debugfs are
+# looked up in /usr/sbin and /sbin too, via hurd_vm.find_tool), python3
+# (uses hurd_vm.root_partition).  The CI image is modified in place;
+# pass --fresh to hurd_vm.py afterwards to rebuild it from scratch.
 
 set -eu
 
@@ -29,14 +30,19 @@ ci=${HURD_VM_CI_IMAGE:-$here/debian-hurd-ci.img}
 [ -f "$ci" ] || { echo "no CI image: $ci (run hurd_vm.py once first)" >&2; exit 1; }
 [ -f "$file" ] || { echo "no such file: $file" >&2; exit 1; }
 
-read -r lba sectors <<PYEOF
-$(cd "$here" && python3 -c "import hurd_vm as h; print(*h.root_partition('$ci'))")
+read -r lba sectors e2fsck debugfs <<PYEOF
+$(cd "$here" && python3 -c "
+import hurd_vm as h
+print(*h.root_partition('$ci'))
+print(h.find_tool('e2fsck'))
+print(h.find_tool('debugfs'))
+")
 PYEOF
 
 part=$(mktemp /tmp/hurd-rootpart.XXXXXX)
 trap 'rm -f "$part"' EXIT
 dd if="$ci" of="$part" bs=512 skip="$lba" count="$sectors" status=none
-e2fsck -fy "$part" >/dev/null
-debugfs -w -R "write $(readlink -f "$file") /root/$(basename "$file")" "$part"
+"$e2fsck" -fy "$part" >/dev/null
+"$debugfs" -w -R "write $(readlink -f "$file") /root/$(basename "$file")" "$part"
 dd if="$part" of="$ci" bs=512 seek="$lba" conv=notrunc status=none
 echo "injected $file into $ci as /root/$(basename "$file")"
