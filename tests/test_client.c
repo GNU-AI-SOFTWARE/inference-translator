@@ -110,6 +110,33 @@ main (void)
            strchr (banner, '\033') == NULL && strstr (banner, "inference") != NULL);
     unsetenv ("NO_COLOR");
 
+    /* --- phase 3: syntax highlighting ------------------------------ */
+
+    char hl[8192];
+    const char *js = "{\"prompt\":\"résume https://example.org\",\"task\":\"summarize\",\"n\":2,\"ok\":true,\"x\":null}";
+    size_t hn = inf_json_highlight (hl, sizeof hl, js, false);
+    check ("json highlight color=false copies verbatim",
+           hn == strlen (js) && strcmp (hl, js) == 0);
+    hn = inf_json_highlight (hl, sizeof hl, js, true);
+    check ("json highlight color=true emits ANSI and keeps the text",
+           strchr (hl, '\033') != NULL
+           && strstr (hl, "\"prompt\"") != NULL
+           && strstr (hl, "summarize") != NULL
+           && strstr (hl, "true") != NULL);
+    check ("json highlight marks object keys differently from values",
+           strstr (hl, "\033[1;36m\"prompt\"") != NULL
+           && strstr (hl, "\033[32m\"summarize\"") != NULL);
+
+    const char *tx = "voir https://example.org/a **en gras** et `code` ici";
+    hn = inf_text_highlight (hl, sizeof hl, tx, false);
+    check ("text highlight color=false copies verbatim",
+           hn == strlen (tx) && strcmp (hl, tx) == 0);
+    hn = inf_text_highlight (hl, sizeof hl, tx, true);
+    check ("text highlight underlines URLs and bolds markdown",
+           strstr (hl, "\033[4;36mhttps://example.org/a\033[0m") != NULL
+           && strstr (hl, "\033[1m**en gras**\033[0m") != NULL
+           && strstr (hl, "\033[2m`code`\033[0m") != NULL);
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }
