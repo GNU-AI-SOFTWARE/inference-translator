@@ -4,5 +4,3 @@
 SUBDIRS = src tests
 
 dist_man_MANS = inference.1
-
-EXTRA_DIST = CHANGELOG.md INSTALL.md install.sh
