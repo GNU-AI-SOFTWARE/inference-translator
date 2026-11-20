@@ -334,54 +334,65 @@ proc_mem (unsigned long long *used_kb, unsigned long long *total_kb)
     *used_kb = total > avail ? total - avail : 0;
 }
 
-static void
-proc_io (unsigned long long *disk_r, unsigned long long *disk_w,
-         unsigned long long *net_rx, unsigned long long *net_tx)
+/* Returns 0 when at least one counter was parsed, -1 when the file is
+   missing or unparseable (e.g. a procfs without diskstats: the caller
+   must then show "n/d", not a misleading 0). */
+static int
+proc_disk_io (unsigned long long *disk_r, unsigned long long *disk_w)
 {
-    *disk_r = *disk_w = *net_rx = *net_tx = 0;
+    *disk_r = *disk_w = 0;
     FILE *f = fopen ("/proc/diskstats", "r");
-    if (f != nullptr)
+    if (f == nullptr)
+        return -1;
+    int seen = 0;
+    char line[512];
+    while (fgets (line, sizeof line, f) != nullptr)
       {
-        char line[512];
-        while (fgets (line, sizeof line, f) != nullptr)
+        unsigned int maj, min;
+        char name[64];
+        unsigned long long rd, rd_sect, wr, wr_sect;
+        if (sscanf (line, "%u %u %63s %llu %*u %llu %llu %*u %llu",
+                    &maj, &min, name, &rd, &rd_sect, &wr, &wr_sect) == 7)
           {
-            unsigned int maj, min;
-            char name[64];
-            unsigned long long rd, rd_sect, wr, wr_sect;
-            if (sscanf (line, "%u %u %63s %llu %*u %llu %llu %*u %llu",
-                        &maj, &min, name, &rd, &rd_sect, &wr, &wr_sect) == 7)
-              {
-                *disk_r += rd_sect * 512ULL;
-                *disk_w += wr_sect * 512ULL;
-              }
+            *disk_r += rd_sect * 512ULL;
+            *disk_w += wr_sect * 512ULL;
+            seen = 1;
           }
-        fclose (f);
       }
-    f = fopen ("/proc/net/dev", "r");
-    if (f != nullptr)
+    fclose (f);
+    return seen ? 0 : -1;
+}
+
+static int
+proc_net_io (unsigned long long *net_rx, unsigned long long *net_tx)
+{
+    *net_rx = *net_tx = 0;
+    FILE *f = fopen ("/proc/net/dev", "r");
+    if (f == nullptr)
+        return -1;
+    int seen = 0;
+    char line[512];
+    while (fgets (line, sizeof line, f) != nullptr)
       {
-        char line[512];
-        while (fgets (line, sizeof line, f) != nullptr)
+        char *colon = strchr (line, ':');
+        if (colon == nullptr)
+            continue;
+        char ifname[64];
+        if (sscanf (line, " %63[^:]:", ifname) != 1)
+            continue;
+        if (strcmp (ifname, "lo") == 0)
+            continue;
+        unsigned long long rx = 0, tx = 0;
+        if (sscanf (colon + 1, " %llu %*u %*u %*u %*u %*u %*u %*u %llu",
+                    &rx, &tx) == 2)
           {
-            char *colon = strchr (line, ':');
-            if (colon == nullptr)
-                continue;
-            char ifname[64];
-            if (sscanf (line, " %63[^:]:", ifname) != 1)
-                continue;
-            if (strcmp (ifname, "lo") == 0)
-                continue;
-            unsigned long long rx = 0, tx = 0;
-            if (sscanf (colon + 1,
-                        " %llu %*u %*u %*u %*u %*u %*u %*u %llu",
-                        &rx, &tx) == 2)
-              {
-                *net_rx += rx;
-                *net_tx += tx;
-              }
+            *net_rx += rx;
+            *net_tx += tx;
+            seen = 1;
           }
-        fclose (f);
       }
+    fclose (f);
+    return seen ? 0 : -1;
 }
 
 static void
@@ -402,11 +413,16 @@ stats_proc (char *p, size_t left)
     else
         PUT ("MEM  : n/d (/proc/meminfo illisible)\n");
 
-    unsigned long long dr, dw, rx, tx;
-    proc_io (&dr, &dw, &rx, &tx);
-    PUT ("DISK : lus %llu Mio, écrits %llu Mio (depuis le boot)\n",
-         dr >> 20, dw >> 20);
-    PUT ("NET  : rx %llu Mio, tx %llu Mio (hors lo)\n", rx >> 20, tx >> 20);
+    unsigned long long dr = 0, dw = 0, rx = 0, tx = 0;
+    if (proc_disk_io (&dr, &dw) == 0)
+        PUT ("DISK : lus %llu Mio, écrits %llu Mio (depuis le boot)\n",
+             dr >> 20, dw >> 20);
+    else
+        PUT ("DISK : n/d (/proc/diskstats absent ou vide)\n");
+    if (proc_net_io (&rx, &tx) == 0)
+        PUT ("NET  : rx %llu Mio, tx %llu Mio (hors lo)\n", rx >> 20, tx >> 20);
+    else
+        PUT ("NET  : n/d (/proc/net/dev absent ou vide)\n");
 }
 
 #endif /* ON_HURD */
@@ -487,19 +503,31 @@ inf_client_stats_line (char *out, size_t outsz)
         double cpu = proc_cpu_pct ();
         unsigned long long used, total;
         proc_mem (&used, &total);
-        unsigned long long dr, dw, rx, tx;
-        proc_io (&dr, &dw, &rx, &tx);
+        unsigned long long dr = 0, dw = 0, rx = 0, tx = 0;
+        int have_disk = proc_disk_io (&dr, &dw) == 0;
+        int have_net = proc_net_io (&rx, &tx) == 0;
         char cp[32];
         if (cpu >= 0.0)
             snprintf (cp, sizeof cp, "%.1f%%", cpu);
         else
             snprintf (cp, sizeof cp, "n/d");
+        char io[160];
+        if (have_disk && have_net)
+            snprintf (io, sizeof io, "DSK r%lluM/w%lluM | NET rx%lluM tx%lluM",
+                      dr >> 20, dw >> 20, rx >> 20, tx >> 20);
+        else if (have_disk)
+            snprintf (io, sizeof io, "DSK r%lluM/w%lluM | NET n/d",
+                      dr >> 20, dw >> 20);
+        else if (have_net)
+            snprintf (io, sizeof io, "DSK n/d | NET rx%lluM tx%lluM",
+                      rx >> 20, tx >> 20);
+        else
+            snprintf (io, sizeof io, "IO n/d (/proc vide)");
         int n = snprintf (out, outsz,
-                          "CPU %s | MEM %llu/%llu Mio (%.1f%%) | "
-                          "DSK r%lluM/w%lluM | NET rx%lluM tx%lluM",
+                          "CPU %s | MEM %llu/%llu Mio (%.1f%%) | %s",
                           cp, used >> 10, total >> 10,
                           total ? 100.0 * (double) used / (double) total : 0.0,
-                          dr >> 20, dw >> 20, rx >> 20, tx >> 20);
+                          io);
         return n < 0 ? 0 : (size_t) n;
     }
 #endif
