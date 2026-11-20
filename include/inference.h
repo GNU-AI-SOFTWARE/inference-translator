@@ -245,4 +245,18 @@ size_t inf_client_banner (char *out, size_t outsz, const char *version);
  * Returns the length written. */
 size_t inf_client_stats (char *out, size_t outsz);
 
+/* Phase 3 highlighting (SPEC.md section 6): pure renderers, no TTY.
+ * They emit ANSI codes only when COLOR is true; with color=false the
+ * output is the input copied verbatim.  Both are bounded by outsz and
+ * NUL-terminate; they return the length written (excluding the NUL).
+ *
+ * inf_json_highlight: JSON syntax - object keys bold cyan, strings
+ * green, numbers magenta, true/false/null yellow, punctuation dim.
+ * inf_text_highlight: prompt text - http(s):// URLs underlined cyan,
+ * **bold**, *italic* and `code` in light markdown. */
+size_t inf_json_highlight (char *out, size_t outsz, const char *json,
+                           bool color);
+size_t inf_text_highlight (char *out, size_t outsz, const char *text,
+                           bool color);
+
 #endif /* INFERENCE_H */

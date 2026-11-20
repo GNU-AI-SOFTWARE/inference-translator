@@ -153,15 +153,47 @@ narrate (const char *verb, const char *node)
 
 /* --- commands ------------------------------------------------------- */
 
+/* ANSI color for a state word (idle/running/parsed/done/error...),
+ * empty string when plain output. */
+static const char *
+state_ansi (const char *state)
+{
+    if (!inf_client_color ())
+        return "";
+    if (strcmp (state, "parsed") == 0 || strcmp (state, "done") == 0
+        || strcmp (state, "ok") == 0)
+        return "\033[32m";
+    if (strcmp (state, "error") == 0 || strcmp (state, "failed") == 0)
+        return "\033[1;31m";
+    if (strcmp (state, "running") == 0 || strcmp (state, "pending") == 0)
+        return "\033[33m";
+    if (strcmp (state, "idle") == 0)
+        return "\033[2m";
+    return "";
+}
+
 static void
-cmd_status (void)
+print_status_node (void)
 {
     char val[256];
     narrate ("read", INF_NODE_STATUS);
     if (read_node (INF_NODE_STATUS, val, sizeof val) < 0)
         printf ("  status illisible (translator non monté ?)\n");
     else
-        printf ("  status: %s\n", val);
+      {
+        val[strcspn (val, "\r\n")] = '\0';
+        const char *a = state_ansi (val);
+        if (*a)
+            printf ("  status: %s%s\033[0m\n", a, val);
+        else
+            printf ("  status: %s\n", val);
+      }
+}
+
+static void
+cmd_status (void)
+{
+    print_status_node ();
 }
 
 /* --- /fetch: an HTML page through httpfs ----------------------------- */
@@ -266,7 +298,16 @@ cmd_fetch (const char *arg)
                 "   essayez une IP directe: /fetch http://93.184.216.34)\n");
         return;
       }
-    printf ("  status HTTP: %ld\n", status);
+    {
+        const char *a = "";
+        if (inf_client_color ())
+            a = (status >= 200 && status < 300) ? "\033[32m"
+                : (status == 0 ? "\033[1;31m" : "\033[33m");
+        if (*a)
+            printf ("  status HTTP: %s%ld\033[0m\n", a, status);
+        else
+            printf ("  status HTTP: %ld\n", status);
+    }
     if (status == 0)
       {
         /* "000": the HEAD probe failed; /page/headers holds the
@@ -355,6 +396,9 @@ cmd_help (void)
     printf ("\n");
     printf ("  Le prompt soumis est écrit dans <montage>/prompt ; la "
             "requête JSON\n    se lit dans <montage>/request.\n");
+    printf ("  Coloration syntaxique (URLs, JSON) sur terminal ; NO_COLOR "
+            "la désactive,\n    aucune séquence ANSI ne fuit vers un "
+            "non-TTY.\n");
 }
 
 static void
@@ -403,17 +447,43 @@ cmd_submit (void)
     printf ("  requête soumise: tâche=%s, %zu URL(s)\n",
             inf_task_name (req.task), nurls);
 
+    /* Phase 3: spinner while the translator processes the prompt
+     * (poll /inference/status until it leaves its previous state,
+     * at most ~10 s), then an atomic highlighted redraw. */
+    char before[256] = "";
+    (void) read_node (INF_NODE_STATUS, before, sizeof before);
+    before[strcspn (before, "\r\n")] = '\0';
+    static const char frames[] = "|/-\\";
+    printf ("  traitement ");
+    fflush (stdout);
+    for (int i = 0; i < 100; i++)
+      {
+        char val[256];
+        if (read_node (INF_NODE_STATUS, val, sizeof val) >= 0)
+          {
+            val[strcspn (val, "\r\n")] = '\0';
+            if (strcmp (val, before) != 0)
+                break;
+          }
+        printf ("\r  traitement %c ", frames[i % 4]);
+        fflush (stdout);
+        usleep (100 * 1000);
+      }
+    printf ("\r                    \r");
+    fflush (stdout);
+
     char reqjson[INF_JSON_MAX];
     narrate ("read", INF_NODE_REQUEST);
     if (read_node (INF_NODE_REQUEST, reqjson, sizeof reqjson) < 0)
         printf ("  request illisible avant soumission\n");
     else
-        printf ("  request: %s\n", reqjson);
+      {
+        char hl[INF_JSON_MAX * 4];
+        inf_json_highlight (hl, sizeof hl, reqjson, inf_client_color ());
+        printf ("  request: %s\n", hl);
+      }
 
-    char val[256];
-    narrate ("read", INF_NODE_STATUS);
-    if (read_node (INF_NODE_STATUS, val, sizeof val) >= 0)
-        printf ("  status: %s\n", val);
+    print_status_node ();
 
     g_blen = 0;
     g_buf[0] = '\0';
@@ -473,14 +543,47 @@ cmd_editor (void)
 
 /* --- input loop ------------------------------------------------------ */
 
-/* Redraw the prompt and the current line (after a completion). */
+/* Redraw the prompt and the current line (after a completion).
+ * Phase 3: the line is syntax-highlighted (URLs, light markdown). */
 static void
 redraw_line (const char *line)
 {
     if (inf_client_color ())
-        printf ("\r\033[1;32m> \033[0m%s\033[K", line);
+      {
+        char hl[INF_PROMPT_MAX * 4];
+        inf_text_highlight (hl, sizeof hl, line, true);
+        printf ("\r\033[1;32m> \033[0m%s\033[K", hl);
+      }
     else
         printf ("\r> %s", line);
+    fflush (stdout);
+}
+
+/* Erase one full character (UTF-8 aware: continuation bytes
+ * 0x80..0xBF belong to the previous lead byte) from the line buffer.
+ * Returns the new length. */
+static size_t
+del_char (char *line, size_t len)
+{
+    if (len == 0)
+        return 0;
+    len--;
+    while (len > 0 && ((unsigned char) line[len] & 0xC0) == 0x80)
+        len--;
+    return len;
+}
+
+/* Visual erase of the last character: redraw the whole (highlighted)
+ * line in color mode - atomic, no staircase - or "\b \b" per cell
+ * otherwise. */
+static void
+erase_last_char (char *line, size_t len)
+{
+    line[len] = '\0';
+    if (inf_client_color ())
+        redraw_line (line);
+    else
+        printf ("\b \b");
     fflush (stdout);
 }
 
@@ -532,9 +635,8 @@ read_line (char *line, size_t linesz, size_t *outlen, bool *escaped)
                   }
                 if (c3 == 'D' && len > 0)   /* left arrow: erase */
                   {
-                    len--;
-                    if (inf_client_color ())
-                        printf ("\b \b");
+                    len = del_char (line, len);
+                    erase_last_char (line, len);
                   }
               }
             continue;
@@ -571,15 +673,17 @@ read_line (char *line, size_t linesz, size_t *outlen, bool *escaped)
           }
         if ((c == 0x7f || c == 0x08) && len > 0)
           {
-            len--;
-            if (inf_client_color ())
-                printf ("\b \b");
+            len = del_char (line, len);
+            erase_last_char (line, len);
             continue;
           }
         if (len + 1 < linesz)
           {
             line[len++] = c;
-            if (write (STDOUT_FILENO, &c, 1) != 1)
+            line[len] = '\0';
+            if (inf_client_color ())
+              redraw_line (line);       /* live highlight as we type */
+            else if (write (STDOUT_FILENO, &c, 1) != 1)
                 return false;
           }
       }

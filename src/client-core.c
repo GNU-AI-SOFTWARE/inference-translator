@@ -181,6 +181,192 @@ inf_client_narrate (char *out, size_t outsz, const char *verb,
     return (size_t) n < outsz ? (size_t) n : outsz - 1;
 }
 
+/* --- phase 3: syntax highlighting (SPEC.md section 6) --------------- */
+
+#define HL_PUT(str)                                                     \
+    do {                                                                \
+        size_t hl_l_ = strlen (str);                                    \
+        if (n + hl_l_ < outsz)                                          \
+          {                                                             \
+            memcpy (out + n, str, hl_l_);                               \
+            n += hl_l_;                                                 \
+          }                                                             \
+    } while (0)
+
+/* Render JSON with ANSI colors when COLOR is true (keys bold cyan,
+ * strings green, numbers magenta, literals yellow, punctuation dim);
+ * with color=false the input is copied verbatim. */
+size_t
+inf_json_highlight (char *out, size_t outsz, const char *json, bool color)
+{
+    size_t n = 0;
+    if (outsz == 0)
+        return 0;
+    if (!color)
+      {
+        size_t l = strlen (json);
+        if (l > outsz - 1)
+            l = outsz - 1;
+        memcpy (out, json, l);
+        out[l] = '\0';
+        return l;
+      }
+    for (size_t i = 0; json[i] != '\0' && n + 16 < outsz;)
+      {
+        char c = json[i];
+        if (c == '"')
+          {
+            /* scan the whole string token */
+            size_t j = i + 1;
+            while (json[j] != '\0' && json[j] != '"')
+                j += (json[j] == '\\' && json[j + 1] != '\0') ? 2 : 1;
+            if (json[j] == '"')
+                j++;
+            /* a string followed by ':' is an object key */
+            size_t k = j;
+            while (json[k] == ' ' || json[k] == '\t')
+                k++;
+            bool is_key = json[k] == ':';
+            HL_PUT (is_key ? "\033[1;36m" : "\033[32m");
+            if (n + (j - i) < outsz - 1)
+              {
+                memcpy (out + n, json + i, j - i);
+                n += j - i;
+              }
+            HL_PUT ("\033[0m");
+            i = j;
+            continue;
+          }
+        if (c == '-' || (c >= '0' && c <= '9'))
+          {
+            size_t j = i;
+            while (json[j] == '-' || json[j] == '+' || json[j] == '.'
+                   || json[j] == 'e' || json[j] == 'E'
+                   || (json[j] >= '0' && json[j] <= '9'))
+                j++;
+            HL_PUT ("\033[35m");
+            if (n + (j - i) < outsz - 1)
+              {
+                memcpy (out + n, json + i, j - i);
+                n += j - i;
+              }
+            HL_PUT ("\033[0m");
+            i = j;
+            continue;
+          }
+        if (strncmp (json + i, "true", 4) == 0
+            || strncmp (json + i, "false", 5) == 0
+            || strncmp (json + i, "null", 4) == 0)
+          {
+            size_t l = strncmp (json + i, "false", 5) == 0 ? 5 : 4;
+            HL_PUT ("\033[33m");
+            if (n + l < outsz - 1)
+              {
+                memcpy (out + n, json + i, l);
+                n += l;
+              }
+            HL_PUT ("\033[0m");
+            i += l;
+            continue;
+          }
+        if (c == '{' || c == '}' || c == '[' || c == ']' || c == ':'
+            || c == ',')
+          {
+            HL_PUT ("\033[2m");
+            out[n++] = c;
+            HL_PUT ("\033[0m");
+            i++;
+            continue;
+          }
+        out[n++] = c;
+        i++;
+      }
+    out[n] = '\0';
+    return n;
+}
+
+/* Render prompt text: http(s):// URLs underlined cyan, **bold**,
+ * *italic* and `code` spans highlighted; plain copy when !color. */
+size_t
+inf_text_highlight (char *out, size_t outsz, const char *text, bool color)
+{
+    size_t n = 0;
+    if (outsz == 0)
+        return 0;
+    if (!color)
+      {
+        size_t l = strlen (text);
+        if (l > outsz - 1)
+            l = outsz - 1;
+        memcpy (out, text, l);
+        out[l] = '\0';
+        return l;
+      }
+    for (size_t i = 0; text[i] != '\0' && n + 16 < outsz;)
+      {
+        char c = text[i];
+        if ((strncmp (text + i, "http://", 7) == 0
+             || strncmp (text + i, "https://", 8) == 0))
+          {
+            size_t l = strncmp (text + i, "https://", 8) == 0 ? 8 : 7;
+            size_t j = i + l;
+            while (text[j] != '\0' && text[j] != ' ' && text[j] != '\t'
+                   && text[j] != '\n')
+                j++;
+            HL_PUT ("\033[4;36m");
+            if (n + (j - i) < outsz - 1)
+              {
+                memcpy (out + n, text + i, j - i);
+                n += j - i;
+              }
+            HL_PUT ("\033[0m");
+            i = j;
+            continue;
+          }
+        if (strncmp (text + i, "**", 2) == 0)
+          {
+            size_t j = i + 2;
+            while (text[j] != '\0' && strncmp (text + j, "**", 2) != 0)
+                j++;
+            if (text[j] == '*' && text[j + 1] == '*')
+                j += 2;
+            HL_PUT ("\033[1m");
+            if (n + (j - i) < outsz - 1)
+              {
+                memcpy (out + n, text + i, j - i);
+                n += j - i;
+              }
+            HL_PUT ("\033[0m");
+            i = j;
+            continue;
+          }
+        if (c == '*' || c == '`')
+          {
+            char close = c;
+            size_t j = i + 1;
+            while (text[j] != '\0' && text[j] != close)
+                j++;
+            if (text[j] == close)
+                j++;
+            HL_PUT (c == '*' ? "\033[3m" : "\033[2m");
+            if (n + (j - i) < outsz - 1)
+              {
+                memcpy (out + n, text + i, j - i);
+                n += j - i;
+              }
+            HL_PUT ("\033[0m");
+            i = j;
+            continue;
+          }
+        out[n++] = c;
+        i++;
+      }
+    out[n] = '\0';
+    return n;
+}
+
+#undef HL_PUT
+
 size_t
 inf_client_banner (char *out, size_t outsz, const char *version)
 {
