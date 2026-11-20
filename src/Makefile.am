@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
 
-bin_PROGRAMS = inference-translator
+AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/include
+
+bin_PROGRAMS = inference-translator inference
 
 # --- The portable core -------------------------------------------------
 #
@@ -10,7 +12,16 @@ bin_PROGRAMS = inference-translator
 # C23/POSIX with no external dependency.  The library is shared by the
 # binary and the test suite.
 noinst_LIBRARIES = libinfcore.a
-libinfcore_a_SOURCES = contract.c expr.c actions.c spinner.c fs.c
+libinfcore_a_SOURCES = contract.c expr.c actions.c spinner.c fs.c client-core.c
+
+# --- The phase 2 client `inference` ---------------------------------
+#
+# Pure POSIX (termios + ANSI, no TUI library): it talks to the mount
+# point through plain open/read/write and works on any host, Hurd or
+# not (the tests point it at a fake tree with --mount).
+inference_SOURCES = client.c
+inference_CPPFLAGS = $(AM_CPPFLAGS)
+inference_LDADD = libinfcore.a
 
 noinst_HEADERS = translator.h
 
@@ -29,6 +40,7 @@ inference_translator_LDADD = libinfcore.a -lnetfs -lfshelp -lports \
                              -lshouldbeinlibc
 else
 inference_translator_SOURCES = main.c
+inference_translator_CPPFLAGS = $(AM_CPPFLAGS)
 inference_translator_LDADD = libinfcore.a
 endif
 
@@ -39,5 +51,4 @@ if HAVE_NCURSES
 inference_translator_SOURCES += cli.c
 endif
 
-AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/include
 AM_CFLAGS = $(C23_CFLAGS) -Wall -Wextra

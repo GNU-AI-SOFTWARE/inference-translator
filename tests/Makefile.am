@@ -6,8 +6,8 @@
 # not.  test_posix.sh drives the really mounted translator and skips
 # (exit 77) when /inference is absent.  test_cli.sh needs only the
 # built binary.
-TESTS = test_cli.sh test_contract test_fs test_posix.sh
-check_PROGRAMS = test_contract test_fs
+TESTS = test_cli.sh test_client.sh test_contract test_fs test_client test_posix.sh
+check_PROGRAMS = test_contract test_fs test_client
 
 test_contract_SOURCES = test_contract.c
 test_contract_LDADD = $(top_builddir)/src/libinfcore.a
@@ -17,4 +17,8 @@ test_fs_SOURCES = test_fs.c
 test_fs_LDADD = $(top_builddir)/src/libinfcore.a
 test_fs_CPPFLAGS = -I$(top_srcdir)/include
 
-EXTRA_DIST = test_cli.sh test_posix.sh
+test_client_SOURCES = test_client.c
+test_client_LDADD = $(top_builddir)/src/libinfcore.a
+test_client_CPPFLAGS = -I$(top_srcdir)/include
+
+EXTRA_DIST = test_cli.sh test_client.sh test_posix.sh

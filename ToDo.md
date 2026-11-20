@@ -127,7 +127,7 @@ Deux fils avancent en parallèle : **1→2** (supervisor) et **1→3**
 - [ ] orchestrator-translator phase 4 : commandes `replay` et `history`,
       rejeu depuis les données archivées (réseau coupé), historique des
       `run_instances`.
-- [ ] inference-translator phase 2 : client `inference` (bannière, saisie
+- [x] inference-translator phase 2 : client `inference` (bannière, saisie
       multi-lignes termios, `$VISUAL`/`$EDITOR` → nano → vi, commandes
       `/editor`, `/task`, `/submit`, `/status`, `/quit`, narration).
 - [ ] inference-translator phase 3 : couleurs ANSI 256, coloration

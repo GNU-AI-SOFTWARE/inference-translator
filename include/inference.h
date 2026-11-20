@@ -184,4 +184,47 @@ ssize_t inf_fs_read (struct inf_fs *fs, const char *node,
 int inf_cli_run (void);
 #endif
 
+/* --- Phase 2: the `inference` client (SPEC.md section 12) ----------
+ *
+ * Pure, testable core (src/client-core.c): editor resolution, slash
+ * command parsing, narration formatting, NO_COLOR handling.  The
+ * interactive binary (src/client.c) drives /inference through plain
+ * POSIX open/read/write. */
+
+/* Slash commands of the frozen inf_actions[] table. */
+enum inf_client_cmd
+{
+    INF_CMD_NONE,                       /* not a command line */
+    INF_CMD_EDITOR,
+    INF_CMD_TASK,
+    INF_CMD_SUBMIT,
+    INF_CMD_STATUS,
+    INF_CMD_QUIT,
+    INF_CMD_UNKNOWN
+};
+
+/* Frozen editor resolution (SPEC.md section 5):
+ * $VISUAL -> $EDITOR -> nano -> vi.  Returns a static/constant string
+ * naming the editor to exec (never NULL). */
+const char *inf_client_editor (void);
+
+/* Parse one input line as a slash command.  Returns INF_CMD_NONE for
+ * plain text; for INF_CMD_TASK the argument is copied into arg. */
+enum inf_client_cmd inf_client_parse_command (const char *line,
+                                              char *arg, size_t argsz);
+
+/* Validate a task name against the frozen enum. */
+bool inf_task_from_name (const char *s, size_t len, enum inf_task *out);
+
+/* True unless NO_COLOR is set and non-empty (SPEC.md section 6). */
+bool inf_client_color (void);
+
+/* Narration line for one step, naming the POSIX node involved:
+ * e.g. "write /inference/prompt".  Returns the length written. */
+size_t inf_client_narrate (char *out, size_t outsz, const char *verb,
+                           const char *mount, const char *node);
+
+/* Colored banner line (ANSI only when inf_client_color ()). */
+size_t inf_client_banner (char *out, size_t outsz, const char *version);
+
 #endif /* INFERENCE_H */

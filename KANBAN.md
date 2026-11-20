@@ -15,11 +15,6 @@ phase ; les critères d'acceptation de chaque phase sont dans le plan.
 
 ## À faire
 
-### Phase 2 — Le client `inference` : IHM minimale
-- [ ] Bannière colorée, saisie multi-lignes (`termios`), commandes de base (`/editor`, `/task`, `/submit`, `/status`, `/quit`)
-- [ ] Intégration `$EDITOR` : composition du prompt dans nano/vim/emacs, relecture du buffer, re-soumission
-- [ ] Narration des actions avec le nœud POSIX concerné à chaque étape
-
 ### Phase 3 — Interface riche : couleurs, animations, streaming
 - [ ] Coloration syntaxique du prompt (URLs, markdown léger) et des sorties JSON (clés, chaînes, nombres, états)
 - [ ] Animations : spinner pendant l'attente du `result`, effet machine à écrire, réaffichage propre
@@ -50,6 +45,11 @@ phase ; les critères d'acceptation de chaque phase sont dans le plan.
 _(rien)_
 
 ## Fait
+
+### Phase 2 — Le client `inference` : IHM minimale
+- [x] Bannière colorée, saisie multi-lignes (`termios`), commandes de base (`/editor`, `/task`, `/submit`, `/status`, `/quit`) (#11)
+- [x] Intégration `$EDITOR` : composition du prompt dans nano/vim/emacs, relecture du buffer, re-soumission (#12)
+- [x] Narration des actions avec le nœud POSIX concerné à chaque étape (#13)
 
 ### Phase 0 — Spécification et contrats
 - [x] Gel du trio JSON `request`/`status`/`result` et de l'arborescence `/inference` (SPEC.md §1–§2)
