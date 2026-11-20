@@ -1,0 +1,302 @@
+diff --git a/.gitignore b/.gitignore
+index 7d2ce53..d30a100 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -20,3 +20,6 @@ copy-*.img
+ # Local CI validation artifacts (served trees, run logs)
+ /ci-*.log
+ /serve/
++
++# manual QEMU serial log (see README: -serial file:serial-live.log)
++serial-live.log
+diff --git a/README.md b/README.md
+index bb97e39..1a13e87 100644
+--- a/README.md
++++ b/README.md
+@@ -36,6 +36,9 @@ and any script can then run inside the guest.
+ |-----------------|------|
+ | `hurd_vm.py`    | The driver: prepares the CI copy of the image, boots QEMU, drives the serial console, runs your script in the guest |
+ | `guest-httpfs.sh` | Example guest script: build and test [httpfs-translator](https://github.com/gnu-ai/httpfs-translator) inside the VM |
++| `guest-netfix.sh` | Guest script: repair the guest network (attach pfinet statically to the QEMU user-mode network) and verify DNS/HTTP |
++| `guest-inference.sh` | Guest script: build, test, mount and exercise the `/inference` translator of [inference-translator](https://github.com/GNU-AI-SOFTWARE/inference-translator) |
++| `inject-src.sh`  | Host script: inject a file into `/root/` of the prepared CI image with `debugfs` (offline source delivery) |
+ 
+ ## Requirements (host)
+ 
+@@ -110,6 +113,36 @@ cd httpfs-translator
+ ./autogen.sh && ./configure && make && make check
+ ```
+ 
++### Repairing the guest network
++
++The preinstalled image sometimes boots with `eth0` unconfigured
++(`ifup` fails on a stale `/run/network/ifstate`), so DNS and HTTP
++fail with "Network is unreachable".  `guest-netfix.sh` attaches
++pfinet statically to the QEMU user-mode network (`10.0.2.15/24`,
++gateway `10.0.2.2`, DNS `10.0.2.3`) and verifies DNS and HTTP:
++
++```console
++$ python3 hurd_vm.py debian-hurd-amd64-20260314.img guest-netfix.sh
++```
++
++### Testing inference-translator fully offline
++
++The image ships `gcc` and `make` but no autoconf/automake/git.  To
++build and test [inference-translator](https://github.com/GNU-AI-SOFTWARE/inference-translator)
++without relying on the guest network: pre-generate `configure` on the
++host, pack the tree, inject it into the CI image with `inject-src.sh`,
++then run `guest-inference.sh` (it runs `make check`, mounts
++`/inference` with `settrans` and exercises the translator through
++plain POSIX commands):
++
++```console
++$ git clone https://github.com/GNU-AI-SOFTWARE/inference-translator ~/inference-translator
++$ cd ~/inference-translator && autoreconf -i && cd ~
++$ tar czf inference-src.tar.gz inference-translator
++$ ./inject-src.sh debian-hurd-amd64-20260314.img ~/inference-src.tar.gz
++$ python3 hurd_vm.py debian-hurd-amd64-20260314.img guest-inference.sh --ram 2G
++```
++
+ ## Why we do not build a custom GRUB
+ 
+ Earlier versions built a standalone El Torito GRUB with an
+diff --git a/guest-inference.sh b/guest-inference.sh
+new file mode 100755
+index 0000000..2555038
+--- /dev/null
++++ b/guest-inference.sh
+@@ -0,0 +1,70 @@
++#!/bin/sh
++# SPDX-License-Identifier: GPL-3.0-or-later
++# SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
++#
++# Build and test GNU-AI-SOFTWARE/inference-translator on real
++# GNU/Hurd, then mount the /inference translator and exercise it
++# through plain POSIX commands.
++#
++#   python3 hurd_vm.py <image> guest-inference.sh --ram 2G
++#
++# Offline by default: the preinstalled image ships gcc and make but
++# no autoconf/automake/git, and its network is unreliable (see
++# guest-netfix.sh).  Pre-generate configure on the host, pack the
++# tree and inject it into the CI image first:
++#
++#   git clone https://github.com/GNU-AI-SOFTWARE/inference-translator ~/inference-translator
++#   cd ~/inference-translator && autoreconf -i && cd ~
++#   tar czf inference-src.tar.gz inference-translator
++#   ./inject-src.sh <image> ~/inference-src.tar.gz
++#
++# If /root/inference-src.tar.gz is missing but git and the network
++# work, falls back to a git clone.
++
++set -eu
++export DEBIAN_FRONTEND=noninteractive
++
++cd /root
++if [ -f inference-src.tar.gz ]; then
++    rm -rf inference-translator
++    tar xf inference-src.tar.gz
++elif command -v git >/dev/null 2>&1 \
++     && getent hosts github.com >/dev/null 2>&1; then
++    rm -rf inference-translator
++    git clone https://github.com/GNU-AI-SOFTWARE/inference-translator
++else
++    echo "no /root/inference-src.tar.gz and no usable network:" >&2
++    echo "run inject-src.sh on the host first (see header comment)" >&2
++    exit 1
++fi
++cd inference-translator
++
++./configure && make
++
++# Mount the translator BEFORE make check: on Hurd, test_posix.sh then
++# runs for real instead of skipping (exit 77); on other systems
++# /inference stays unmounted and test_posix.sh skips as designed.
++settrans -g /inference 2>/dev/null || true   # drop any stale mount
++mkdir -p /inference
++settrans -a /inference ./src/inference-translator
++
++make check || { cat tests/test-suite.log 2>/dev/null || true; exit 1; }
++# expected on Hurd: test_contract 36/36, test_fs 29/29, test_cli.sh OK,
++#           test_posix.sh OK (mounted).  Note: test_posix.sh ends with
++#           the task override set to "translate", which is sticky by
++#           contract, so the manual demo below shows task=translate.
++
++# Manual demo of the POSIX interface (make check already ran
++# test_posix.sh against the mounted translator):
++echo "résume https://example.org/article" | tee /inference/prompt
++echo "--- request ---"; cat /inference/request; echo
++echo "--- status ---"; cat /inference/status; echo
++echo "--- urls ---";   cat /inference/urls; echo
++
++echo translate | tee /inference/task
++echo "--- request (override) ---"; cat /inference/request; echo   # must contain "task":"translate"
++
++./src/inference-translator --version    # 0.1.0
++
++settrans -g /inference
++echo GUEST-INF-OK
+diff --git a/guest-netfix.sh b/guest-netfix.sh
+new file mode 100755
+index 0000000..d13d0f3
+--- /dev/null
++++ b/guest-netfix.sh
+@@ -0,0 +1,70 @@
++#!/bin/sh
++# SPDX-License-Identifier: GPL-3.0-or-later
++# SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
++#
++# Repair the guest network on the preinstalled image.
++#
++# At boot, ifup often fails on a stale /run/network/ifstate, so eth0
++# stays unconfigured and pfinet is never attached to it: every
++# connect then fails with "Network is unreachable".  This script
++# attaches pfinet statically to the QEMU user-mode network
++# (10.0.2.15/24, gateway 10.0.2.2, DNS 10.0.2.3) and verifies DNS
++# and HTTP.
++#
++#   python3 hurd_vm.py <image> guest-netfix.sh
++
++set -u
++
++ls -l /dev/eth0 2>&1 || true
++
++rm -f /etc/resolv.conf
++printf 'nameserver 10.0.2.3\noptions timeout:2 attempts:2\n' > /etc/resolv.conf
++cat /etc/resolv.conf
++
++# The image sometimes ships /run/network/ifstate as a directory,
++# which makes ifup fail at boot:
++rm -rf /run/network/ifstate 2>/dev/null
++mkdir -p /run/network 2>/dev/null
++: > /run/network/ifstate 2>/dev/null || true
++
++# Attach pfinet to eth0 with a static slirp configuration; -g sets
++# the default gateway (see pfinet/options.c in the Hurd sources):
++settrans -fg /servers/socket/2 /hurd/pfinet \
++    -i /dev/eth0 -a 10.0.2.15 -m 255.255.255.0 -g 10.0.2.2 2>&1 \
++|| settrans -a /servers/socket/2 /hurd/pfinet \
++    -i eth0 -a 10.0.2.15 -m 255.255.255.0 -g 10.0.2.2 2>&1 \
++|| echo "WARN: pfinet attach failed"
++
++sleep 2
++ifconfig -a
++
++i=0
++until getent hosts deb.debian.org >/dev/null 2>&1; do
++    i=$((i+1))
++    [ "$i" -ge 10 ] && break
++    sleep 2
++done
++if getent hosts deb.debian.org >/dev/null 2>&1; then
++    echo "DNS-OK"
++else
++    # UDP may be broken through netdde/slirp; force DNS over TCP:
++    rm -f /etc/resolv.conf
++    printf 'nameserver 10.0.2.3\noptions usevc timeout:2 attempts:2\n' > /etc/resolv.conf
++    if getent hosts deb.debian.org >/dev/null 2>&1; then
++        echo "DNS-OK-TCP"
++    else
++        echo "DNS-KO"
++    fi
++fi
++if timeout 5 bash -c 'exec 3<>/dev/tcp/10.0.2.3/53' 2>/dev/null; then
++    echo "TCP-DNS-10.0.2.3-OK"
++else
++    echo "TCP-DNS-10.0.2.3-KO"
++fi
++ping -c1 -W2 10.0.2.2 2>&1 | tail -1
++if wget -q -O /dev/null http://deb.debian.org/ 2>/dev/null; then
++    echo "HTTP-OK"
++else
++    echo "HTTP-KO"
++fi
++echo NETFIX-DONE
+diff --git a/hurd_vm.py b/hurd_vm.py
+index 1a602fd..d30c67d 100644
+--- a/hurd_vm.py
++++ b/hurd_vm.py
+@@ -559,15 +559,16 @@ def run(src, script, opts):
+                 m = re.search(rb"GUESTRC=(\d+)", vm.log)
+                 rc = 0 if int(m.group(1)) == 0 else 1
+             print(vm.log.decode("latin-1", "replace")[-4000:])
+-        if rc == 0 and not opts["keep"]:
+-            # Shut the guest down cleanly and WAIT for it: killing
+-            # QEMU mid-shutdown leaves the filesystem inconsistent.
+-            # A powered-off guest makes QEMU exit by itself
+-            # (ACPI), so watch the process instead of guessing a
+-            # delay.
++        if not opts["keep"]:
++            # Shut the guest down cleanly and WAIT for it, even when
++            # the guest script failed: killing QEMU mid-shutdown
++            # leaves the filesystem inconsistent and the next run
++            # pays a full e2fsck repair.  A powered-off guest makes
++            # QEMU exit by itself (ACPI), so watch the process
++            # instead of guessing a delay.
+             vm.send("poweroff")
+             print("[vm] waiting for the guest to power off...")
+-            deadline = time.time() + 180
++            deadline = time.time() + 300
+             while time.time() < deadline and vm.proc.poll() is None:
+                 vm.read_some(5)
+             if vm.proc.poll() is None:
+diff --git a/inject-src.sh b/inject-src.sh
+new file mode 100755
+index 0000000..7edecd7
+--- /dev/null
++++ b/inject-src.sh
+@@ -0,0 +1,54 @@
++#!/bin/sh
++# SPDX-License-Identifier: GPL-3.0-or-later
++# SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
++#
++# Inject a file into /root/ of the prepared CI image without booting
++# the VM: extract the root partition with dd, write the file with
++# debugfs, put the partition back.  Used to feed pre-built source
++# tarballs to guest scripts when the guest network is unusable.
++#
++#   ./inject-src.sh <file-to-inject>
++#   ./inject-src.sh <source-image> <file-to-inject>   (image arg optional)
++#   e.g. ./inject-src.sh ~/inference-src.tar.gz
++#
++# Requires: no VM running on the image, e2fsprogs (e2fsck/debugfs are
++# looked up in /usr/sbin and /sbin too, via hurd_vm.find_tool), python3
++# (uses hurd_vm.root_partition).  The CI image is modified in place;
++# pass --fresh to hurd_vm.py afterwards to rebuild it from scratch.
++
++set -eu
++
++case $# in
++    1) file=$1 ;;
++    2) file=$2 ;;   # first arg (source image) is informational only
++    *) echo "usage: inject-src.sh [source-image] <file>" >&2; exit 2 ;;
++esac
++here=$(cd "$(dirname "$0")" && pwd)
++# Same default as hurd_vm.py (CI_IMAGE), overridable the same way;
++# the CI copy is always named debian-hurd-ci.img next to hurd_vm.py:
++ci=${HURD_VM_CI_IMAGE:-$here/debian-hurd-ci.img}
++[ -f "$ci" ] || { echo "no CI image: $ci (run hurd_vm.py once first)" >&2; exit 1; }
++[ -f "$file" ] || { echo "no such file: $file" >&2; exit 1; }
++
++read -r lba sectors e2fsck debugfs <<PYEOF
++$(cd "$here" && python3 -c "
++import hurd_vm as h
++print(*h.root_partition('$ci'), h.find_tool('e2fsck'), h.find_tool('debugfs'))
++")
++PYEOF
++
++part=$(mktemp /tmp/hurd-rootpart.XXXXXX)
++trap 'rm -f "$part"' EXIT
++dd if="$ci" of="$part" bs=512 skip="$lba" count="$sectors" status=none
++# e2fsck exit codes: 0 = clean, 1-3 = errors corrected, >=4 = unfixable.
++# Under set -e a corrected filesystem (rc=1) must NOT abort the script:
++set +e
++"$e2fsck" -fy "$part" >/dev/null 2>&1
++frc=$?
++set -e
++[ "$frc" -lt 4 ] || { echo "e2fsck failed (rc=$frc) on the extracted partition" >&2; exit 1; }
++# rm first: debugfs "write" refuses to overwrite an existing file
++"$debugfs" -w -R "rm /root/$(basename "$file")" "$part" >/dev/null 2>&1 || true
++"$debugfs" -w -R "write $(readlink -f "$file") /root/$(basename "$file")" "$part"
++dd if="$part" of="$ci" bs=512 seek="$lba" conv=notrunc status=none
++echo "injected $file into $ci as /root/$(basename "$file")"

@@ -39,24 +39,31 @@ else
 fi
 cd inference-translator
 
-./configure && make && make check
-# expected: test_contract 36/36, test_fs 28/28, test_cli.sh OK,
-#           test_posix.sh SKIP 77 (/inference not mounted yet)
+./configure && make
 
+# Mount the translator BEFORE make check: on Hurd, test_posix.sh then
+# runs for real instead of skipping (exit 77); on other systems
+# /inference stays unmounted and test_posix.sh skips as designed.
+settrans -g /inference 2>/dev/null || true   # drop any stale mount
 mkdir -p /inference
 settrans -a /inference ./src/inference-translator
 
+make check || { cat tests/test-suite.log 2>/dev/null || true; exit 1; }
+# expected on Hurd: test_contract 36/36, test_fs 29/29, test_cli.sh OK,
+#           test_posix.sh OK (mounted).  Note: test_posix.sh ends with
+#           the task override set to "translate", which is sticky by
+#           contract, so the manual demo below shows task=translate.
+
+# Manual demo of the POSIX interface (make check already ran
+# test_posix.sh against the mounted translator):
 echo "résume https://example.org/article" | tee /inference/prompt
-echo "--- request ---"; cat /inference/request
-# expected: {"prompt":"résume https://example.org/article","task":"summarize","urls":["https://example.org/article"],"params":{}}
-echo "--- status ---"; cat /inference/status     # expected: parsed
-echo "--- urls ---";   cat /inference/urls       # expected: https://example.org/article
-echo "--- task ---";   cat /inference/task       # expected: summarize
+echo "--- request ---"; cat /inference/request; echo
+echo "--- status ---"; cat /inference/status; echo
+echo "--- urls ---";   cat /inference/urls; echo
 
 echo translate | tee /inference/task
-echo "--- request (override) ---"; cat /inference/request   # must contain "task":"translate"
+echo "--- request (override) ---"; cat /inference/request; echo   # must contain "task":"translate"
 
-sh tests/test_posix.sh                  # mounted now: must pass (no SKIP)
 ./src/inference-translator --version    # 0.1.0
 
 settrans -g /inference

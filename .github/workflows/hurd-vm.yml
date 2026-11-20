@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
+#
+# Build and test inference-translator on a real Debian GNU/Hurd VM
+# (QEMU, headless) via mistral-vm-debian-hurd's hurd_vm.py.
+#
+# GitHub runners have no /dev/kvm, so QEMU falls back to TCG: the Hurd
+# boot and the build are slow (the driver allows 900s for the login
+# prompt and 3600s for the guest script), hence timeout-minutes: 60.
+
+name: hurd-vm
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: hurd-vm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hurd-vm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout inference-translator (the code under test)
+        uses: actions/checkout@v4
+        with:
+          path: inference-translator
+
+      - name: Checkout mistral-vm-debian-hurd (the VM driver)
+        uses: actions/checkout@v4
+        with:
+          repository: GNU-AI-SOFTWARE/mistral-vm-debian-hurd
+          path: mistral-vm-debian-hurd
+
+      - name: Host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 e2fsprogs \
+              autoconf automake libtool
+
+      - name: Download the Debian GNU/Hurd disk image
+        run: |
+          cd mistral-vm-debian-hurd
+          curl -LO https://cdimage.debian.org/cdimage/ports/latest/hurd-amd64/debian-hurd-amd64-20260314.img.tar.xz
+          tar xJf debian-hurd-amd64-20260314.img.tar.xz
+
+      - name: Pre-generate configure and pack the sources
+        run: |
+          cd inference-translator
+          autoreconf -i
+          cd "$GITHUB_WORKSPACE"
+          tar czf inference-src.tar.gz inference-translator
+
+      - name: Inject the sources into the VM CI image (offline path)
+        run: |
+          cp hurd-vm/guest-inference.sh hurd-vm/inject-src.sh mistral-vm-debian-hurd/
+          cd mistral-vm-debian-hurd
+          chmod +x guest-inference.sh inject-src.sh
+          ./inject-src.sh "$GITHUB_WORKSPACE/inference-src.tar.gz"
+
+      - name: Build and test on real GNU/Hurd
+        run: |
+          cd mistral-vm-debian-hurd
+          python3 hurd_vm.py debian-hurd-amd64-20260314.img guest-inference.sh --ram 2G
+
+      - name: Upload the serial console log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hurd-vm-serial-log
+          path: mistral-vm-debian-hurd/serial.log
+          if-no-files-found: warn
