@@ -36,7 +36,8 @@ Usage:
              --fresh    rebuild the CI copy even if cached
              --keep     keep the VM alive after the script
              --root-pass PASSWORD   root password, baked into the CI
-                                   copy (serial login + ssh password)
+                                   copy (serial login + ssh password);
+                                   --set-root-pass is an alias
              --timeout SECONDS      login-prompt timeout (default 900)
 
 The script runs as root inside the guest; its output arrives on the
@@ -503,7 +504,7 @@ def parse_args(argv):
         elif a == "--ram":
             i += 1
             opts["ram"] = argv[i]
-        elif a == "--root-pass":
+        elif a in ("--root-pass", "--set-root-pass"):
             i += 1
             opts["root_pass"] = argv[i]
         elif a == "--timeout":
