@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -300,6 +301,39 @@ cmd_fetch (const char *arg)
     free (body);
 }
 
+/* /stats - real-time CPU/memory/IO display: redraw every second,
+   any key leaves the monitor. */
+static void
+cmd_stats (void)
+{
+    char buf[2048];
+    bool color = inf_client_color ();
+    if (color)
+        printf ("\033[2J\033[H");           /* clear + home */
+    for (;;)
+      {
+        inf_client_stats (buf, sizeof buf);
+        if (color)
+            printf ("\033[H");              /* home, redraw in place */
+        printf ("inference - /stats (une touche pour quitter)\n%s", buf);
+        fflush (stdout);
+        fd_set fds;
+        FD_ZERO (&fds);
+        FD_SET (STDIN_FILENO, &fds);
+        struct timeval tv = { 1, 0 };
+        if (select (STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv) > 0)
+          {
+            char c;
+            if (read (STDIN_FILENO, &c, 1) <= 0)
+                break;
+            break;                          /* any key leaves */
+          }
+      }
+    if (color)
+        printf ("\033[2J\033[H");
+    printf ("\n");
+}
+
 static void
 cmd_help (void)
 {
@@ -557,7 +591,7 @@ usage (FILE *out)
     fprintf (out,
              "Usage: inference [--mount DIR] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /fetch URL /status /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /status /stats /help /quit.\n"
              "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
 }
 
@@ -669,6 +703,9 @@ main (int argc, char **argv)
             break;
           case INF_CMD_FETCH:
             cmd_fetch (arg);
+            break;
+          case INF_CMD_STATS:
+            cmd_stats ();
             break;
           case INF_CMD_HELP:
             cmd_help ();

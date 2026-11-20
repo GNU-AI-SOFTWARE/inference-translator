@@ -85,6 +85,14 @@ Pour obtenir le texte extrait d'une page HTML, empiler
 « settrans -a /page/text htmlfs /page/content » puis
 « cat /page/text ».
 .TP
+.B /stats
+Affichage temps réel de l'utilisation CPU, mémoire et entrées/sorties
+(disque, réseau), redessiné chaque seconde ; une touche quelconque
+quitte l'affichage.  Sources : /proc/stat, /proc/meminfo,
+/proc/diskstats, /proc/net/dev sur Linux ; statistiques Mach
+(host_statistics, host_basic_info, vm_info) sur Hurd, où l'IO affiche
+« n/d » (pas de /proc).
+.TP
 .B /status
 Relit et affiche
 .IR <montage>/status .

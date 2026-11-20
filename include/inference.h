@@ -200,6 +200,7 @@ enum inf_client_cmd
     INF_CMD_SUBMIT,
     INF_CMD_STATUS,
     INF_CMD_FETCH,
+    INF_CMD_STATS,
     INF_CMD_HELP,
     INF_CMD_QUIT,
     INF_CMD_UNKNOWN
@@ -237,5 +238,11 @@ size_t inf_client_narrate (char *out, size_t outsz, const char *verb,
 
 /* Colored banner line (ANSI only when inf_client_color ()). */
 size_t inf_client_banner (char *out, size_t outsz, const char *version);
+
+/* One /stats snapshot: CPU %, memory and I/O counters, as a small
+ * multi-line text block (NUL-terminated, bounded by outsz).  Sources:
+ * /proc on Linux, Mach host statistics on Hurd (I/O then "n/d").
+ * Returns the length written. */
+size_t inf_client_stats (char *out, size_t outsz);
 
 #endif /* INFERENCE_H */
