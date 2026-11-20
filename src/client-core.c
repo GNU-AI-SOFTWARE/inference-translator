@@ -181,6 +181,27 @@ inf_client_narrate (char *out, size_t outsz, const char *verb,
     return (size_t) n < outsz ? (size_t) n : outsz - 1;
 }
 
+/* --- URL validation for /fetch -------------------------------------- */
+
+bool
+inf_url_valid (const char *url)
+{
+    if (url == NULL)
+        return false;
+    size_t off = 0;
+    if (strncmp (url, "https://", 8) == 0)
+        off = 8;
+    else if (strncmp (url, "http://", 7) == 0)
+        off = 7;
+    else
+        return false;
+    /* host must be non-empty and not just "/" or "?" (curl would
+       answer "URL using bad/illegal format or missing URL") */
+    if (url[off] == '\0' || url[off] == '/' || url[off] == '?')
+        return false;
+    return true;
+}
+
 /* --- phase 3: syntax highlighting (SPEC.md section 6) --------------- */
 
 #define HL_PUT(str)                                                     \

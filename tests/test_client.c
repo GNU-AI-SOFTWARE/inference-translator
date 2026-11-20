@@ -137,6 +137,15 @@ main (void)
            && strstr (hl, "\033[1m**en gras**\033[0m") != NULL
            && strstr (hl, "\033[2m`code`\033[0m") != NULL);
 
+    /* --- /fetch URL validation ------------------------------------- */
+
+    check ("https URL with host is valid",
+           inf_url_valid ("https://example.org") && inf_url_valid ("http://93.184.216.34/x"));
+    check ("bare scheme or empty host is refused",
+           !inf_url_valid ("https://") && !inf_url_valid ("http://")
+           && !inf_url_valid ("https:///path") && !inf_url_valid ("ftp://x")
+           && !inf_url_valid ("example.org") && !inf_url_valid (""));
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }

@@ -251,10 +251,9 @@ cmd_fetch (const char *arg)
         printf ("  usage: /fetch URL (http://... ou https://...)\n");
         return;
       }
-    if (strncmp (arg, "http://", 7) != 0
-        && strncmp (arg, "https://", 8) != 0)
+    if (!inf_url_valid (arg))
       {
-        printf ("  URL invalide: http:// ou https:// requis\n");
+        printf ("  URL invalide: http:// ou https:// suivi d'un hôte requis\n");
         return;
       }
 

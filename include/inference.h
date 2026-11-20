@@ -259,4 +259,9 @@ size_t inf_json_highlight (char *out, size_t outsz, const char *json,
 size_t inf_text_highlight (char *out, size_t outsz, const char *text,
                            bool color);
 
+/* A fetchable URL: http:// or https:// followed by a non-empty host
+ * (the frozen INF_URL_REGEX requires a non-space run after the
+ * scheme; here we additionally reject a bare "/" or "?" as host). */
+bool inf_url_valid (const char *url);
+
 #endif /* INFERENCE_H */
