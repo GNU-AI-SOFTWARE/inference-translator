@@ -858,6 +858,14 @@ usage (FILE *out)
 int
 main (int argc, char **argv)
 {
+    /* env first, so an explicit --mount/--db on the command line wins */
+    const char *env0 = getenv ("INFERENCE_MOUNT");
+    if (env0 != NULL && *env0 != '\0')
+        g_mount = env0;
+    env0 = getenv ("INFERENCE_DB");
+    if (env0 != NULL && *env0 != '\0')
+        g_db = env0;
+
     for (int i = 1; i < argc; i++)
       {
         if (strcmp (argv[i], "--mount") == 0 || strcmp (argv[i], "-m") == 0)
@@ -895,12 +903,6 @@ main (int argc, char **argv)
             return 2;
           }
       }
-    const char *env = getenv ("INFERENCE_MOUNT");
-    if (env != NULL && *env != '\0' && argc == 1)
-        g_mount = env;
-    env = getenv ("INFERENCE_DB");
-    if (env != NULL && *env != '\0' && argc == 1)
-        g_db = env;
 
     /* SPEC.md section 6: the interactive mode refuses to start
      * without a terminal, with an explicit message. */
