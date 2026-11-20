@@ -467,7 +467,10 @@ cmd_learn (const char *arg)
         char rec[300000];
         inf_training_record (rec, sizeof rec, line, status, text, sum);
 
-        narrate ("write", g_db);
+        if (inf_client_color ())
+            printf ("\033[2m\u2192 write %s\033[0m\n", g_db);
+        else
+            printf ("\u2192 write %s\n", g_db);
         if (write_root (g_db, rec, strlen (rec)) != 0)
           {
             printf ("  /db injoignable (%s) — montez db-translator :\n"
@@ -476,7 +479,10 @@ cmd_learn (const char *arg)
             return;
           }
         char resp[2048];
-        narrate ("read", g_db);
+        if (inf_client_color ())
+            printf ("\033[2m\u2192 read %s\033[0m\n", g_db);
+        else
+            printf ("\u2192 read %s\n", g_db);
         if (read_root (g_db, resp, sizeof resp) < 0)
             printf ("  pas de réponse de %s\n", g_db);
         else
