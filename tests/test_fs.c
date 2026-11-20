@@ -158,6 +158,13 @@ main (void)
            got == full && full > 7
            && strncmp (small, buf, 7) == 0 && small[7] == '\0');
 
+    /* --- prompt write trims the newline that tee appends ---------- */
+
+    check ("prompt write trims the trailing newline from tee",
+           inf_fs_write (&fs, INF_NODE_PROMPT, "bonjour\n", 8) == 0
+           && read_node (INF_NODE_PROMPT) == 7
+           && strcmp (buf, "bonjour") == 0);
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }
