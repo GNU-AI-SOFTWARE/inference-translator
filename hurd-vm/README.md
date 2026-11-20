@@ -37,6 +37,29 @@ Attendu : `test_contract` 36/36, `test_fs` 28/28, `test_cli.sh` OK,
 compte, `GUEST-INF-OK`, `GUESTRC=0`, exit code 0 du driver, puis
 `guest powered off cleanly`.
 
+## Arrêt propre de la VM (patch de `hurd_vm.py`)
+
+`hurd_vm.py` amont n'envoie `poweroff` que si le script guest a réussi
+(rc=0) : en cas d'échec il tue QEMU, la copie CI reste « dirty » et le
+run suivant refait un `dd` + `e2fsck` complet avant de booter.  La
+copie patchée `hurd-vm/hurd_vm.py` de cette branche envoie toujours
+`poweroff` (même après un échec) et attend la sortie ACPI de QEMU :
+la copie CI reste « clean », plus de réparation au run suivant.
+
+Installation locale (le bac à sable ne peut pas pousser dans
+`mistral-vm-debian-hurd` — la signature de commits y est refusée ;
+ouvrir la PR amont depuis ta propre machine) :
+
+```console
+$ cd ~/mistral-vm-debian-hurd
+$ cp hurd_vm.py hurd_vm.py.orig
+$ curl -Lo hurd_vm.py "https://raw.githubusercontent.com/GNU-AI-SOFTWARE/inference-translator/vibe/hurd-vm-scripts-807684/hurd-vm/hurd_vm.py"
+$ python3 -m py_compile hurd_vm.py
+```
+
+Ensuite tous les runs, succès ou échec du script guest, se terminent
+par `[vm] guest powered off cleanly` et la copie CI reste « clean ».
+
 ## SSH dans la VM
 
 Le port hôte 2222 n'existe que tant que QEMU tourne : le driver
