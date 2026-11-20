@@ -78,6 +78,8 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
                 cmd = INF_CMD_SUBMIT;
             else if (strcmp (inf_actions[i].command, "/status") == 0)
                 cmd = INF_CMD_STATUS;
+            else if (strcmp (inf_actions[i].command, "/help") == 0)
+                cmd = INF_CMD_HELP;
             else
                 cmd = INF_CMD_QUIT;
 
@@ -100,6 +102,61 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
             return cmd;
           }
     return INF_CMD_UNKNOWN;
+}
+
+size_t
+inf_client_complete (const char *line, size_t len, char *out,
+                     size_t outsz, const char **list, size_t list_max)
+{
+    const char *cands[16];
+    size_t ncand = 0;
+    size_t prefix = 0;
+    const char *token;
+    size_t toklen;
+
+    if (len >= 6 && strncmp (line, "/task ", 6) == 0)
+      {
+        prefix = 6;
+        token = line + 6;
+        toklen = len - 6;
+        for (int t = 0; t <= INF_TASK_CUSTOM; t++)
+            cands[ncand++] = inf_task_name ((enum inf_task) t);
+      }
+    else if (len > 0 && line[0] == '/')
+      {
+        token = line;
+        toklen = len;
+        for (size_t i = 0; i < inf_actions_count && ncand < 16; i++)
+            cands[ncand++] = inf_actions[i].command;
+      }
+    else
+        return 0;
+
+    size_t nmatch = 0;
+    const char *single = NULL;
+    for (size_t i = 0; i < ncand; i++)
+      {
+        if (strlen (cands[i]) >= toklen
+            && strncmp (cands[i], token, toklen) == 0)
+          {
+            if (list != NULL && nmatch < list_max)
+                list[nmatch] = cands[i];
+            if (nmatch == 0)
+                single = cands[i];
+            nmatch++;
+          }
+      }
+    if (nmatch == 1 && out != NULL && outsz > 0)
+      {
+        size_t n = prefix < outsz - 1 ? prefix : outsz - 1;
+        memcpy (out, line, n);
+        size_t rl = strlen (single);
+        if (n + rl >= outsz)
+            rl = outsz - 1 - n;
+        memcpy (out + n, single, rl);
+        out[n + rl] = '\0';
+      }
+    return nmatch;
 }
 
 bool

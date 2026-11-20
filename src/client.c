@@ -155,6 +155,29 @@ cmd_status (void)
 }
 
 static void
+cmd_help (void)
+{
+    printf ("  Commandes (une ligne commençant par '/') :\n");
+    for (size_t i = 0; i < inf_actions_count; i++)
+        printf ("    %-8s %s\n", inf_actions[i].command,
+                inf_actions[i].help);
+    printf ("  Tâches de /task :");
+    for (int t = 0; t <= INF_TASK_CUSTOM; t++)
+        printf (" %s", inf_task_name ((enum inf_task) t));
+    printf ("\n");
+    printf ("  Édition de ligne : DEL efface le dernier caractère, "
+            "Tab complète\n    (commande ou tâche), '\\' en tête de ligne "
+            "échappe le '/' (texte libre).\n");
+    printf ("  Nœuds POSIX du translator monté :");
+    const char *const *nodes = inf_fs_nodes ();
+    for (size_t i = 0; i < inf_fs_node_count (); i++)
+        printf (" %s", nodes[i]);
+    printf ("\n");
+    printf ("  Le prompt soumis est écrit dans <montage>/prompt ; la "
+            "requête JSON\n    se lit dans <montage>/request.\n");
+}
+
+static void
 cmd_task (const char *arg)
 {
     enum inf_task t;
@@ -270,9 +293,23 @@ cmd_editor (void)
 
 /* --- input loop ------------------------------------------------------ */
 
-/* Read one line in raw mode.  Returns false on EOF/quit. */
+/* Redraw the prompt and the current line (after a completion). */
+static void
+redraw_line (const char *line)
+{
+    if (inf_client_color ())
+        printf ("\r\033[1;32m> \033[0m%s\033[K", line);
+    else
+        printf ("\r> %s", line);
+    fflush (stdout);
+}
+
+/* Read one line in raw mode.  Returns false on EOF/quit.
+ * Handles DEL/backspace, CSI escape sequences (left arrow erases),
+ * Tab completion and a leading backslash (escapes the '/', so the
+ * line is plain text: *escaped is set). */
 static bool
-read_line (char *line, size_t linesz, size_t *outlen)
+read_line (char *line, size_t linesz, size_t *outlen, bool *escaped)
 {
     size_t len = 0;
     for (;;)
@@ -295,6 +332,66 @@ read_line (char *line, size_t linesz, size_t *outlen)
             return false;
         if (c == 0x04 && len == 0)      /* Ctrl-D on an empty line */
             return false;
+        if (c == '\\' && len == 0)      /* escape a leading '/' */
+          {
+            if (escaped != NULL)
+                *escaped = true;
+            continue;
+          }
+        if (c == 0x1b)                   /* ESC: CSI sequence (arrows, Del) */
+          {
+            char c2;
+            if (read (STDIN_FILENO, &c2, 1) <= 0)
+                return false;
+            if (c2 == '[')
+              {
+                char c3;
+                for (;;)
+                  {
+                    if (read (STDIN_FILENO, &c3, 1) <= 0)
+                        return false;
+                    if (c3 >= 0x40 && c3 <= 0x7e)
+                        break;      /* final byte of the CSI sequence */
+                  }
+                if (c3 == 'D' && len > 0)   /* left arrow: erase */
+                  {
+                    len--;
+                    if (inf_client_color ())
+                        printf ("\b \b");
+                  }
+              }
+            continue;
+          }
+        if (c == '\t')                   /* Tab: completion */
+          {
+            char comp[INF_PROMPT_MAX];
+            const char *list[16];
+            size_t nm = inf_client_complete (line, len, comp, sizeof comp,
+                                             list, 16);
+            if (nm == 1)
+              {
+                len = strlen (comp);
+                if (len >= linesz)
+                    len = linesz - 1;
+                memcpy (line, comp, len);
+                line[len] = '\0';
+                redraw_line (line);
+                continue;
+              }
+            if (nm > 1)
+              {
+                line[len] = '\0';
+                printf ("\r\n");
+                for (size_t i = 0; i < nm && i < 16; i++)
+                    printf ("%s  ", list[i]);
+                printf ("\r\n");
+                redraw_line (line);
+                continue;
+              }
+            if (write (STDOUT_FILENO, "\a", 1) != 1)
+                return false;
+            continue;
+          }
         if ((c == 0x7f || c == 0x08) && len > 0)
           {
             len--;
@@ -317,7 +414,8 @@ usage (FILE *out)
     fprintf (out,
              "Usage: inference [--mount DIR] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /status /quit.\n");
+             "Commandes: /editor /task TÂCHE /submit /status /help /quit.\n"
+             "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
 }
 
 int
@@ -393,12 +491,13 @@ main (int argc, char **argv)
         fflush (stdout);
 
         size_t llen;
-        if (!read_line (line, sizeof line, &llen))
+        bool escaped = false;
+        if (!read_line (line, sizeof line, &llen, &escaped))
             break;
 
         char arg[256] = "";
-        enum inf_client_cmd cmd = inf_client_parse_command (line, arg,
-                                                            sizeof arg);
+        enum inf_client_cmd cmd = escaped ? INF_CMD_NONE
+            : inf_client_parse_command (line, arg, sizeof arg);
         if (cmd == INF_CMD_NONE)
           {
             /* plain text: append to the prompt buffer, multi-line */
@@ -418,6 +517,9 @@ main (int argc, char **argv)
             return 0;
           case INF_CMD_STATUS:
             cmd_status ();
+            break;
+          case INF_CMD_HELP:
+            cmd_help ();
             break;
           case INF_CMD_TASK:
             cmd_task (arg);

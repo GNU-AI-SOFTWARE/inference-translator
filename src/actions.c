@@ -17,6 +17,7 @@ const struct inf_action inf_actions[] =
     { "/task",   "forcer le type de tâche (summarize, translate, ...)" },
     { "/submit", "analyser le prompt et soumettre la requête" },
     { "/status", "afficher l'état de l'interface" },
+    { "/help",   "afficher cette aide" },
     { "/quit",   "quitter" },
 };
 
