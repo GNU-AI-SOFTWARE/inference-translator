@@ -316,6 +316,8 @@ cmd_stats (void)
         if (color)
             printf ("\033[H");              /* home, redraw in place */
         printf ("inference - /stats (une touche pour quitter)\n%s", buf);
+        if (color)
+            printf ("\033[J");              /* clear leftovers below */
         fflush (stdout);
         fd_set fds;
         FD_ZERO (&fds);

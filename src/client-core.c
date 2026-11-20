@@ -276,10 +276,26 @@ proc_cpu_pct (void)
     FILE *f = fopen ("/proc/stat", "r");
     if (f == nullptr)
         return -1.0;
+    /* Aggregate "cpu " line if present, else the first "cpu0" line
+       (some procfs implementations, e.g. Hurd's, have no aggregate). */
     unsigned long long v[10] = {0};
-    int n = fscanf (f, "cpu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu",
-                    &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7],
-                    &v[8], &v[9]);
+    int n = 0;
+    char line[512];
+    while (fgets (line, sizeof line, f) != nullptr)
+      {
+        if (strncmp (line, "cpu ", 4) == 0
+            || (n == 0 && strncmp (line, "cpu0", 4) == 0))
+          {
+            int m = sscanf (line + 4,
+                            "%llu %llu %llu %llu %llu %llu %llu %llu %llu %llu",
+                            &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6],
+                            &v[7], &v[8], &v[9]);
+            if (m > n)
+                n = m;
+            if (strncmp (line, "cpu ", 4) == 0)
+                break;
+          }
+      }
     fclose (f);
     if (n < 4)
         return -1.0;
