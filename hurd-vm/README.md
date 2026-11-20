@@ -45,3 +45,14 @@ clé publique dans `/root/.ssh/authorized_keys` de la copie CI une fois
 pour toutes via un petit script guest, puis, pendant que le driver
 tourne, depuis un second terminal de l'hôte :
 `ssh -i ~/.ssh/id_ed25519 -p 2222 root@127.0.0.1`.
+
+## CI GitHub (`.github/workflows/hurd-vm.yml`)
+
+Le workflow `hurd-vm` rejoue exactement cette procédure sur un runner
+`ubuntu-latest` (pas de `/dev/kvm` → QEMU en TCG, plus lent ;
+`timeout-minutes: 60`) : checkout du dépôt + de
+`mistral-vm-debian-hurd`, image cdimage, tarball de sources avec
+`configure` pré-généré, `inject-src.sh`, puis
+`hurd_vm.py debian-hurd-amd64-20260314.img guest-inference.sh --ram 2G`.
+Le `serial.log` est uploadé comme artifact à chaque run.  Couvre
+l'issue #27 (CI sous QEMU).
