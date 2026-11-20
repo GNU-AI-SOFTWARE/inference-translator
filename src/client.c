@@ -231,7 +231,8 @@ cmd_fetch (const char *arg)
     shell_quote (q, sizeof q, arg);
     shell_quote (b, sizeof b, find_httpfs ());
     snprintf (cmd, sizeof cmd,
-              "settrans -g " FETCH_MOUNT " 2>/dev/null; "
+              "settrans -fg " FETCH_MOUNT " 2>/dev/null; "
+              "sleep 1; "
               "mkdir -p " FETCH_MOUNT "; "
               "settrans -a " FETCH_MOUNT " %s %s", b, q);
     printf ("→ mount %s %s sur " FETCH_MOUNT "\n", b, arg);
