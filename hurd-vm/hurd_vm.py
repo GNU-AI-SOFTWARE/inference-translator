@@ -372,7 +372,7 @@ class SerialVM:
         # two concurrent VMs cannot share it (HURD_VM_SSH_PORT).
         ssh_port = os.environ.get("HURD_VM_SSH_PORT", "2222")
         return [
-            "qemu-system-x86_64", accel, "-m", self.memory,
+            "qemu-system-x86_64", *accel, "-m", self.memory,
             # Two vCPUs: the guests compile (the Hurd, Mach) and a
             # single core makes every build painfully slow.
             "-smp", "2", "-no-reboot",
@@ -388,7 +388,9 @@ class SerialVM:
         # runners: "failed to initialize kvm: Permission denied"), so
         # retry exactly once with TCG, never recursively.
         if accel is None:
-            accel = "-enable-kvm" if os.path.exists("/dev/kvm") else "-accel tcg"
+            # accel is a LIST of argv items: "-accel tcg" must stay two
+            # separate arguments, otherwise QEMU says "invalid option".
+            accel = ["-enable-kvm"] if os.path.exists("/dev/kvm") else ["-accel", "tcg"]
         with open(QEMU_LOG, "wb") as errf:
             self.proc = subprocess.Popen(self._base_cmd(accel),
                                          stdout=subprocess.DEVNULL,
@@ -403,14 +405,14 @@ class SerialVM:
                 except OSError:
                     if self.proc.poll() is not None:
                         reason = self._qemu_tail()
-                        if (accel == "-enable-kvm"
+                        if (accel == ["-enable-kvm"]
                                 and ("kvm" in reason.lower()
                                      or "could not access" in reason.lower())):
                             print(f"[vm] KVM failed, falling back to "
                                   f"TCG:\n{reason}")
-                            accel = "-accel tcg"
+                            accel = ["-accel", "tcg"]
                             errf.close()
-                            return self.start("-accel tcg")
+                            return self.start(["-accel", "tcg"])
                         if "Failed to get" in reason and "lock" in reason:
                             pids = find_running_vms(self.disk)
                             raise RuntimeError(
