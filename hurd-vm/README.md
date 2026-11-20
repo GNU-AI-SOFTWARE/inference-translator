@@ -46,6 +46,28 @@ pour toutes via un petit script guest, puis, pendant que le driver
 tourne, depuis un second terminal de l'hôte :
 `ssh -i ~/.ssh/id_ed25519 -p 2222 root@127.0.0.1`.
 
+## Console interactive : `launch_inference.py`
+
+Une fois root en SSH dans la VM, avec les cinq dépôts du projet sous
+`/root` (`inference-translator/ orchestrator-translator/
+data-base-translator/ neuron-translator/ httpfs-translator/`) :
+
+```console
+root@hurd:~# python3 /root/launch_inference.py
+```
+
+Le script construit chaque arbre si le binaire manque, monte dans
+l'ordre `/db` (démarre le cluster PostgreSQL local et crée le rôle
+`root` + la base `gnuai` si `pg_ctlcluster` est présent), puis
+`/orchestrate` (`--storage db:/db --instances node:/llm --neuron
+.../sigmoid-neuron-translator` ; l'orchestrateur monte lui-même les
+nœuds `/llm<N>`), puis `/inference`, puis `/web` (httpfs), et lance
+enfin le client interactif `inference --mount /inference`
+(`/editor`, `/task`, `/submit`, `/status`, `/quit`).  Options :
+`--src-root DIR`, `--url URL`, `--no-db`, `--no-web`, `--dry-run`
+(affiche le plan sans rien exécuter).  Sans PostgreSQL disponible,
+`/orchestrate` retombe sur `--storage mem` (backend de test uniquement).
+
 ## CI GitHub (`.github/workflows/hurd-vm.yml`)
 
 Le workflow `hurd-vm` rejoue exactement cette procédure sur un runner
