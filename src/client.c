@@ -702,6 +702,52 @@ cmd_editor (void)
     printf ("  buffer relu (%zu octets)\n", g_blen);
 }
 
+/* --- /read-code: read the code of a URL, detect its language -------- */
+
+#define READ_CODE_PREVIEW_CHARS 8000
+
+static void
+cmd_read_code (const char *arg)
+{
+    if (arg == NULL || *arg == '\0')
+      {
+        printf ("  usage: /read-code URL (http://... ou https://...)\n");
+        return;
+      }
+    if (!inf_url_valid (arg))
+      {
+        printf ("  URL invalide: http:// ou https:// suivi d'un hôte requis\n");
+        return;
+      }
+    long status;
+    char *body;
+    size_t blen;
+    if (fetch_url (arg, &status, &body, &blen) != 0)
+        return;
+    print_http_status (status);
+    if (status < 200 || status >= 300)
+      {
+        free (body);
+        return;
+      }
+    const char *lang = inf_lang_detect (arg, body);
+    const char *a = inf_client_color () ? "\033[1;36m" : "";
+    const char *r = inf_client_color () ? "\033[0m" : "";
+    printf ("  langage détecté: %s%s%s (%zu octets, complet dans "
+            FETCH_MOUNT "/content)\n", a, lang, r, blen);
+
+    char preview[READ_CODE_PREVIEW_CHARS + 1];
+    size_t pl = blen < READ_CODE_PREVIEW_CHARS ? blen : READ_CODE_PREVIEW_CHARS;
+    memcpy (preview, body, pl);
+    preview[pl] = '\0';
+    free (body);
+    char hl[READ_CODE_PREVIEW_CHARS * 4];
+    inf_code_highlight (hl, sizeof hl, preview, lang, inf_client_color ());
+    fputs (hl, stdout);
+    if (pl > 0 && preview[pl - 1] != '\n')
+        printf ("\n");
+}
+
 /* --- input loop ------------------------------------------------------ */
 
 /* Redraw the prompt and the current line (after a completion).
@@ -856,7 +902,7 @@ usage (FILE *out)
     fprintf (out,
              "Usage: inference [--mount DIR] [--db DIR] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /status /stats /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /status /stats /help /quit.\n"
              "Base de données: /db par défaut (--db DIR ou $INFERENCE_DB).\n"
              "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
 }
@@ -1001,6 +1047,9 @@ main (int argc, char **argv)
             break;
           case INF_CMD_LEARN:
             cmd_learn (arg);
+            break;
+          case INF_CMD_READ_CODE:
+            cmd_read_code (arg);
             break;
           case INF_CMD_UNKNOWN:
           default:

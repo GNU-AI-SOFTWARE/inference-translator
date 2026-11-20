@@ -204,6 +204,7 @@ enum inf_client_cmd
     INF_CMD_HELP,
     INF_CMD_QUIT,
     INF_CMD_LEARN,
+    INF_CMD_READ_CODE,
     INF_CMD_UNKNOWN
 };
 
@@ -274,5 +275,16 @@ size_t inf_html_to_text (char *out, size_t outsz, const char *html);
 size_t inf_training_record (char *out, size_t outsz, const char *url,
                             long http_status, const char *text,
                             const char *checksum_hex);
+
+/* /read-code: detect the programming language of a fetched page from
+ * the URL extension, else the shebang, else "text".  Returns a static
+ * language name (never NULL). */
+const char *inf_lang_detect (const char *url, const char *content);
+
+/* /read-code: render source code with ANSI colors when COLOR is true
+ * (comments dim, strings green, numbers magenta, keywords bold blue);
+ * verbatim copy when false.  Bounded by outsz, NUL-terminated. */
+size_t inf_code_highlight (char *out, size_t outsz, const char *code,
+                           const char *lang, bool color);
 
 #endif /* INFERENCE_H */

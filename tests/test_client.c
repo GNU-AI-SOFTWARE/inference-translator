@@ -178,6 +178,33 @@ main (void)
                                      larg, sizeof larg) == INF_CMD_LEARN
            && strcmp (larg, "https://example.org") == 0);
 
+    /* --- /read-code: language detection + code highlighting -------- */
+
+    check ("lang from .py extension",
+           strcmp (inf_lang_detect ("https://x.org/a/b.py", NULL), "python") == 0);
+    check ("lang from .c extension with query string",
+           strcmp (inf_lang_detect ("https://x.org/src/main.c?v=2", NULL), "c") == 0);
+    check ("lang from shebang when no extension",
+           strcmp (inf_lang_detect ("https://x.org/raw/tool", "#!/usr/bin/env python3\n"), "python") == 0);
+    check ("lang fallback is text",
+           strcmp (inf_lang_detect ("https://x.org/", "hello world"), "text") == 0);
+
+    const char *src = "# comment\nreturn \"hi\" + 42\n";
+    hn = inf_code_highlight (hl, sizeof hl, src, "python", false);
+    check ("code highlight color=false copies verbatim",
+           hn == strlen (src) && strcmp (hl, src) == 0);
+    hn = inf_code_highlight (hl, sizeof hl, src, "python", true);
+    check ("code highlight colors comments, strings, numbers, keywords",
+           strstr (hl, "\033[90m# comment\033[0m") != NULL
+           && strstr (hl, "\033[32m\"hi\"\033[0m") != NULL
+           && strstr (hl, "\033[35m42\033[0m") != NULL
+           && strstr (hl, "\033[1;34mreturn\033[0m") != NULL);
+
+    check ("/read-code parses as a command with its URL argument",
+           inf_client_parse_command ("/read-code https://x.org/a.c",
+                                     larg, sizeof larg) == INF_CMD_READ_CODE
+           && strcmp (larg, "https://x.org/a.c") == 0);
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }
