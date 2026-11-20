@@ -1,3 +1,14 @@
+diff --git a/.gitignore b/.gitignore
+index 7d2ce53..d30a100 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -20,3 +20,6 @@ copy-*.img
+ # Local CI validation artifacts (served trees, run logs)
+ /ci-*.log
+ /serve/
++
++# manual QEMU serial log (see README: -serial file:serial-live.log)
++serial-live.log
 diff --git a/README.md b/README.md
 index bb97e39..1a13e87 100644
 --- a/README.md
@@ -224,10 +235,10 @@ index 1a602fd..d30c67d 100644
              if vm.proc.poll() is None:
 diff --git a/inject-src.sh b/inject-src.sh
 new file mode 100755
-index 0000000..6a7b611
+index 0000000..fad57f1
 --- /dev/null
 +++ b/inject-src.sh
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,46 @@
 +#!/bin/sh
 +# SPDX-License-Identifier: GPL-3.0-or-later
 +# SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
@@ -263,9 +274,7 @@ index 0000000..6a7b611
 +read -r lba sectors e2fsck debugfs <<PYEOF
 +$(cd "$here" && python3 -c "
 +import hurd_vm as h
-+print(*h.root_partition('$ci'))
-+print(h.find_tool('e2fsck'))
-+print(h.find_tool('debugfs'))
++print(*h.root_partition('$ci'), h.find_tool('e2fsck'), h.find_tool('debugfs'))
 +")
 +PYEOF
 +

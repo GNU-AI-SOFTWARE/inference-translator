@@ -33,9 +33,7 @@ ci=${HURD_VM_CI_IMAGE:-$here/debian-hurd-ci.img}
 read -r lba sectors e2fsck debugfs <<PYEOF
 $(cd "$here" && python3 -c "
 import hurd_vm as h
-print(*h.root_partition('$ci'))
-print(h.find_tool('e2fsck'))
-print(h.find_tool('debugfs'))
+print(*h.root_partition('$ci'), h.find_tool('e2fsck'), h.find_tool('debugfs'))
 ")
 PYEOF
 
