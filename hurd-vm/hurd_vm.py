@@ -35,8 +35,10 @@ Usage:
     options: --ram 2G   guest memory (default 1G)
              --fresh    rebuild the CI copy even if cached
              --keep     keep the VM alive after the script
-             --root-pass PASSWORD   the image's root password
-                                   (only needed for custom images)
+             --root-pass PASSWORD   root password, baked into the CI
+                                   copy (serial login + ssh password);
+                                   --set-root-pass is an alias
+             --timeout SECONDS      login-prompt timeout (default 900)
 
 The script runs as root inside the guest; its output arrives on the
 serial line (captured in serial.log and echoed here).  The guest
@@ -141,7 +143,56 @@ def patch_grub_cfg(text):
     return "".join(out), patched
 
 
-def prepare_ci_image(src, fresh=False):
+def patch_root_password(part, root_pass, debugfs):
+    """Set root's password in the CI copy's /etc/shadow (cleared when
+    root_pass is None).  Idempotent and verified after the write; a
+    copy without /etc/shadow (none known) keeps its login policy."""
+    shadow_path = part + ".shadow"
+    subprocess.run([debugfs, "-R", "dump /etc/shadow " + shadow_path,
+                    part], check=True, capture_output=True)
+    with open(shadow_path) as f:
+        shadow = f.read()
+    if root_pass:
+        h = subprocess.run(["openssl", "passwd", "-6", root_pass],
+                           capture_output=True, text=True)
+        if h.returncode != 0 or not h.stdout.strip():
+            h = subprocess.run(["mkpasswd", "-m", "sha-512", root_pass],
+                               capture_output=True, text=True)
+        if h.returncode != 0 or not h.stdout.strip():
+            sys.exit("[vm] FAIL: no tool to hash the root password "
+                     "(need openssl or mkpasswd)")
+        root_field = h.stdout.strip()
+    else:
+        root_field = ""
+    repl = "root:" + root_field + ":"
+    new_shadow, n = re.subn(r"(?m)^root:[^:]*:", repl, shadow, count=1)
+    if n == 1 and new_shadow != shadow:
+        with open(shadow_path, "w") as f:
+            f.write(new_shadow)
+        cmds = part + ".shadow.cmds"
+        with open(cmds, "w") as f:
+            f.write("cd /etc\n"
+                    "rm shadow\n"
+                    f"write {shadow_path} shadow\n")
+        subprocess.run([debugfs, "-w", "-f", cmds, part],
+                       check=True, capture_output=True)
+        r = subprocess.run([debugfs, "-R", "cat /etc/shadow", part],
+                           capture_output=True, text=True)
+        os.unlink(cmds)
+        ok = re.search(r"(?m)^root:" + (r"::" if not root_pass
+                                         else r"\$6\$"), r.stdout)
+        if not ok:
+            sys.exit("[vm] FAIL: the /etc/shadow patch did not land "
+                     "in the image\n" + r.stdout[-2000:])
+        print("[vm] root password "
+              + ("set" if root_pass else "cleared")
+              + " on the CI copy")
+    else:
+        print("[vm] root password already correct on the CI copy")
+    os.unlink(shadow_path)
+
+
+def prepare_ci_image(src, fresh=False, root_pass=None):
     """Create (or reuse) the bootable CI copy of the image.
 
     The marker file besides the copy holds two lines: the source
@@ -182,6 +233,7 @@ def prepare_ci_image(src, fresh=False):
             os.unlink(part)
             sys.exit("[vm] FAIL: e2fsck could not repair the root "
                      "filesystem:\n" + r.stdout[-2000:])
+        patch_root_password(part, root_pass, debugfs)
         subprocess.run(["dd", f"if={part}", f"of={CI_IMAGE}",
                         "bs=512", f"seek={lba}", "conv=notrunc",
                         "status=none"], check=True)
@@ -254,42 +306,11 @@ def prepare_ci_image(src, fresh=False):
         sys.exit("[vm] FAIL: the grub.cfg patch did not land in the "
                  "image\n" + r.stdout[-2000:])
 
-    # The driver logs in as root with no password: that is its CI
-    # contract.  The older preinstalled images shipped an empty
-    # root password, the newer ones do not - so the CI COPY (never
-    # the source) gets root's password hash cleared in /etc/shadow,
-    # exactly like the grub.cfg patch above.  Idempotent, verified
-    # after the write; a copy without /etc/shadow (none known)
-    # keeps whatever login policy it has.
-    shadow_path = part + ".shadow"
-    subprocess.run([debugfs, "-R", "dump /etc/shadow " + shadow_path,
-                    part], check=True, capture_output=True)
-    with open(shadow_path) as f:
-        shadow = f.read()
-    new_shadow, n = re.subn(r"(?m)^root:[^:]*:", "root::", shadow,
-                           count=1)
-    if n == 1 and new_shadow != shadow:
-        with open(shadow_path, "w") as f:
-            f.write(new_shadow)
-        cmds = part + ".shadow.cmds"
-        with open(cmds, "w") as f:
-            f.write("cd /etc\n"
-                    "rm shadow\n"
-                    f"write {shadow_path} shadow\n")
-        subprocess.run([debugfs, "-w", "-f", cmds, part],
-                       check=True, capture_output=True)
-        r = subprocess.run([debugfs, "-R", "cat /etc/shadow", part],
-                           capture_output=True, text=True)
-        if re.search(r"(?m)^root::", r.stdout):
-            print("[vm] root password cleared on the CI copy")
-        else:
-            os.unlink(part)
-            sys.exit("[vm] FAIL: the /etc/shadow patch did not land "
-                     "in the image\n" + r.stdout[-2000:])
-        os.unlink(cmds)
-    else:
-        print("[vm] root password already empty on the CI copy")
-    os.unlink(shadow_path)
+    # The driver logs in as root over the serial line; with
+    # --root-pass the same password is baked into the CI COPY's
+    # /etc/shadow (never the source image) so ssh password login
+    # works too - exactly like the grub.cfg patch above.
+    patch_root_password(part, root_pass, debugfs)
 
     subprocess.run(["dd", f"if={part}", f"of={CI_IMAGE}",
                     "bs=512", f"seek={lba}", "conv=notrunc",
@@ -470,7 +491,8 @@ class SerialVM:
 
 
 def parse_args(argv):
-    opts = {"ram": "1G", "fresh": False, "keep": False, "root_pass": None}
+    opts = {"ram": "1G", "fresh": False, "keep": False, "root_pass": None,
+            "timeout": TIMEOUT_LOGIN}
     rest = []
     i = 0
     while i < len(argv):
@@ -482,9 +504,12 @@ def parse_args(argv):
         elif a == "--ram":
             i += 1
             opts["ram"] = argv[i]
-        elif a == "--root-pass":
+        elif a in ("--root-pass", "--set-root-pass"):
             i += 1
             opts["root_pass"] = argv[i]
+        elif a == "--timeout":
+            i += 1
+            opts["timeout"] = int(argv[i])
         else:
             rest.append(a)
         i += 1
@@ -496,7 +521,7 @@ def run(src, script, opts):
     if not os.path.isfile(src):
         print(f"[vm] FAIL: no such image: {src}")
         return 2
-    disk = prepare_ci_image(src, opts["fresh"])
+    disk = prepare_ci_image(src, opts["fresh"], opts["root_pass"])
     marker = disk + ".ready"
 
     # From now on the copy is "dirty" until the guest has powered
@@ -512,9 +537,15 @@ def run(src, script, opts):
     rc = 1
     try:
         print(f"[vm] waiting for the login prompt "
-              f"(up to {TIMEOUT_LOGIN}s)...")
-        if not vm.wait_for(r"login:", TIMEOUT_LOGIN):
+              f"(up to {opts['timeout']}s)...")
+        if not vm.wait_for(r"login:", opts["timeout"]):
             print("[vm] FAIL: no login prompt on the serial console")
+            if re.search(rb"maintenance|Give root password", vm.log):
+                print("[vm] the guest dropped to a maintenance shell "
+                      "(unclean filesystem): rerun with --fresh to "
+                      "rebuild the CI copy")
+            print("[vm] last serial output:")
+            print(vm.log.decode("latin-1", "replace")[-2000:])
             return 1
         print("[vm] login prompt reached, logging in as root")
         vm.send("root")
@@ -590,7 +621,16 @@ def run(src, script, opts):
     finally:
         with open(SERIAL_LOG, "wb") as logf:
             logf.write(vm.log)
-        vm.stop()
+        if opts["keep"]:
+            # Leave QEMU running: the serial TCP socket keeps
+            # listening for a new client (nc 127.0.0.1 <port>) and
+            # the 2222 host forward stays up for ssh.
+            print(f"[vm] VM left running: pid {vm.proc.pid}, "
+                  f"serial console on 127.0.0.1:{vm.port}, "
+                  f"ssh on 127.0.0.1:2222 "
+                  f"(stop with: pkill -f qemu-system-x86_64)")
+        else:
+            vm.stop()
         print("[vm] serial console saved to serial.log")
     return rc
 
