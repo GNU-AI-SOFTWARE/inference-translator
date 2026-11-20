@@ -60,9 +60,12 @@ jobs:
           # the first checkout used path: inference-translator
           cp inference-translator/hurd-vm/guest-inference.sh \
              inference-translator/hurd-vm/inject-src.sh \
+             inference-translator/hurd-vm/hurd_vm.py \
              mistral-vm-debian-hurd/
           cd mistral-vm-debian-hurd
           chmod +x guest-inference.sh inject-src.sh
+          # patched driver: bounded KVM->TCG fallback (runners have an
+          # unusable /dev/kvm), clean poweroff even on guest failure
           # 2-arg form: no CI copy yet on a fresh runner, so pass the
           # source image and inject-src.sh prepares the CI copy itself.
           ./inject-src.sh debian-hurd-amd64-20260314.img "$GITHUB_WORKSPACE/inference-src.tar.gz"

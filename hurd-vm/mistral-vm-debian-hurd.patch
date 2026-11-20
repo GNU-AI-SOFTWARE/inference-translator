@@ -213,7 +213,7 @@ index 0000000..d13d0f3
 +fi
 +echo NETFIX-DONE
 diff --git a/hurd_vm.py b/hurd_vm.py
-index 1a602fd..b980f91 100644
+index 1a602fd..a4024a6 100644
 --- a/hurd_vm.py
 +++ b/hurd_vm.py
 @@ -295,7 +295,10 @@ def prepare_ci_image(src, fresh=False):
@@ -228,7 +228,31 @@ index 1a602fd..b980f91 100644
  
      with open(marker, "w") as f:
          f.write(fingerprint + " clean\n")
-@@ -559,15 +562,16 @@ def run(src, script, opts):
+@@ -380,8 +383,12 @@ class SerialVM:
+             "-serial", f"tcp:127.0.0.1:{self.port},server,nowait",
+         ]
+ 
+-    def start(self):
+-        accel = "-enable-kvm" if os.path.exists("/dev/kvm") else "-accel tcg"
++    def start(self, accel=None):
++        # Bounded fallback: /dev/kvm may exist but be unusable (e.g. CI
++        # runners: "failed to initialize kvm: Permission denied"), so
++        # retry exactly once with TCG, never recursively.
++        if accel is None:
++            accel = "-enable-kvm" if os.path.exists("/dev/kvm") else "-accel tcg"
+         with open(QEMU_LOG, "wb") as errf:
+             self.proc = subprocess.Popen(self._base_cmd(accel),
+                                          stdout=subprocess.DEVNULL,
+@@ -403,7 +410,7 @@ class SerialVM:
+                                   f"TCG:\n{reason}")
+                             accel = "-accel tcg"
+                             errf.close()
+-                            return self.start()
++                            return self.start("-accel tcg")
+                         if "Failed to get" in reason and "lock" in reason:
+                             pids = find_running_vms(self.disk)
+                             raise RuntimeError(
+@@ -559,15 +566,16 @@ def run(src, script, opts):
                  m = re.search(rb"GUESTRC=(\d+)", vm.log)
                  rc = 0 if int(m.group(1)) == 0 else 1
              print(vm.log.decode("latin-1", "replace")[-4000:])
