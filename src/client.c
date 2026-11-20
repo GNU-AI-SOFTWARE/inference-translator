@@ -266,6 +266,17 @@ cmd_fetch (const char *arg)
         return;
       }
     printf ("  status HTTP: %ld\n", status);
+    if (status == 0)
+      {
+        /* "000": the HEAD probe failed; /page/headers holds the
+           transport error text (curl) thanks to the httpfs fix. */
+        char errbuf[512];
+        ssize_t en = read_node_m (FETCH_MOUNT, "headers", errbuf,
+                                  sizeof errbuf);
+        printf ("  transport: %s",
+                en > 0 ? errbuf : "erreur inconnue\n");
+        return;
+      }
 
     char *body = malloc (FETCH_MAX_BODY + 1);
     if (body == nullptr)
