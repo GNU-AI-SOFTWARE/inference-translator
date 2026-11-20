@@ -37,6 +37,33 @@ Attendu : `test_contract` 36/36, `test_fs` 28/28, `test_cli.sh` OK,
 compte, `GUEST-INF-OK`, `GUESTRC=0`, exit code 0 du driver, puis
 `guest powered off cleanly`.
 
+## Pousser tout ça dans `mistral-vm-debian-hurd` (depuis ta machine)
+
+Le bac à sable ne peut signer des commits que pour `inference-translator`,
+donc le push vers `mistral-vm-debian-hurd` se fait depuis ton poste (ta
+propre signature).  Le patch complet contre `main` est fourni ici :
+`hurd-vm/mistral-vm-debian-hurd.patch` (scripts + README + `hurd_vm.py`
+patché « arrêt propre »).
+
+```console
+$ cd ~/mistral-vm-debian-hurd
+$ curl -Lo /tmp/mvmdh.patch "https://raw.githubusercontent.com/GNU-AI-SOFTWARE/inference-translator/vibe/hurd-vm-scripts-807684/hurd-vm/mistral-vm-debian-hurd.patch"
+$ git checkout -b vibe/vm-guest-scripts-807684
+$ git apply --check /tmp/mvmdh.patch && git apply /tmp/mvmdh.patch
+$ git add -A
+$ git commit -m "Add guest scripts + always-clean-poweroff driver for Hurd VM tests"
+$ git push -u origin vibe/vm-guest-scripts-807684
+$ gh pr create --repo GNU-AI-SOFTWARE/mistral-vm-debian-hurd --draft \
+    --head vibe/vm-guest-scripts-807684 --base main \
+    --title "Guest scripts + clean poweroff driver for Hurd VM tests" \
+    --body "guest-netfix.sh (static pfinet on slirp net), guest-inference.sh
+(inference-translator build+mount test, offline via inject-src.sh),
+inject-src.sh (debugfs injection into the CI image), and a hurd_vm.py
+patch that always sends poweroff and waits for the ACPI exit, so a
+failed guest script no longer leaves the CI copy dirty (no more
+e2fsck repair on the next run)."
+```
+
 ## Arrêt propre de la VM (patch de `hurd_vm.py`)
 
 `hurd_vm.py` amont n'envoie `poweroff` que si le script guest a réussi
