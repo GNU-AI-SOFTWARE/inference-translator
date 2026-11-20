@@ -213,10 +213,22 @@ index 0000000..d13d0f3
 +fi
 +echo NETFIX-DONE
 diff --git a/hurd_vm.py b/hurd_vm.py
-index 1a602fd..d30c67d 100644
+index 1a602fd..b980f91 100644
 --- a/hurd_vm.py
 +++ b/hurd_vm.py
-@@ -559,15 +559,16 @@ def run(src, script, opts):
+@@ -295,7 +295,10 @@ def prepare_ci_image(src, fresh=False):
+                     "bs=512", f"seek={lba}", "conv=notrunc",
+                     "status=none"], check=True)
+     for tmp in (part, cfg_path, cmds):
+-        os.unlink(tmp)
++        try:
++            os.unlink(tmp)
++        except OSError:
++            pass          # already removed above (e.g. cmds after the shadow patch)
+ 
+     with open(marker, "w") as f:
+         f.write(fingerprint + " clean\n")
+@@ -559,15 +562,16 @@ def run(src, script, opts):
                  m = re.search(rb"GUESTRC=(\d+)", vm.log)
                  rc = 0 if int(m.group(1)) == 0 else 1
              print(vm.log.decode("latin-1", "replace")[-4000:])
@@ -242,10 +254,10 @@ index 1a602fd..d30c67d 100644
              if vm.proc.poll() is None:
 diff --git a/inject-src.sh b/inject-src.sh
 new file mode 100755
-index 0000000..7edecd7
+index 0000000..982619d
 --- /dev/null
 +++ b/inject-src.sh
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,65 @@
 +#!/bin/sh
 +# SPDX-License-Identifier: GPL-3.0-or-later
 +# SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
@@ -256,8 +268,12 @@ index 0000000..7edecd7
 +# tarballs to guest scripts when the guest network is unusable.
 +#
 +#   ./inject-src.sh <file-to-inject>
-+#   ./inject-src.sh <source-image> <file-to-inject>   (image arg optional)
++#   ./inject-src.sh <source-image> <file-to-inject>
 +#   e.g. ./inject-src.sh ~/inference-src.tar.gz
++#        ./inject-src.sh debian-hurd-amd64-20260314.img ~/inference-src.tar.gz
++#
++# If the prepared CI copy (debian-hurd-ci.img) does not exist yet and a
++# source image is given, it is prepared first via hurd_vm.prepare_ci_image.
 +#
 +# Requires: no VM running on the image, e2fsprogs (e2fsck/debugfs are
 +# looked up in /usr/sbin and /sbin too, via hurd_vm.find_tool), python3
@@ -267,15 +283,22 @@ index 0000000..7edecd7
 +set -eu
 +
 +case $# in
-+    1) file=$1 ;;
-+    2) file=$2 ;;   # first arg (source image) is informational only
++    1) src=;   file=$1 ;;
++    2) src=$1; file=$2 ;;
 +    *) echo "usage: inject-src.sh [source-image] <file>" >&2; exit 2 ;;
 +esac
 +here=$(cd "$(dirname "$0")" && pwd)
 +# Same default as hurd_vm.py (CI_IMAGE), overridable the same way;
 +# the CI copy is always named debian-hurd-ci.img next to hurd_vm.py:
 +ci=${HURD_VM_CI_IMAGE:-$here/debian-hurd-ci.img}
-+[ -f "$ci" ] || { echo "no CI image: $ci (run hurd_vm.py once first)" >&2; exit 1; }
++if [ ! -f "$ci" ]; then
++    # No prepared CI copy yet (e.g. fresh CI runner): build it from the
++    # source image, exactly like hurd_vm.py's first run would.
++    [ -n "$src" ] || { echo "no CI image: $ci and no source image given" >&2; exit 1; }
++    [ -f "$src" ] || { echo "no such source image: $src" >&2; exit 1; }
++    echo "preparing the CI copy from $src (one-time)..."
++    (cd "$here" && python3 -c "import hurd_vm as h; h.prepare_ci_image('$src')")
++fi
 +[ -f "$file" ] || { echo "no such file: $file" >&2; exit 1; }
 +
 +read -r lba sectors e2fsck debugfs <<PYEOF

@@ -63,7 +63,9 @@ jobs:
              mistral-vm-debian-hurd/
           cd mistral-vm-debian-hurd
           chmod +x guest-inference.sh inject-src.sh
-          ./inject-src.sh "$GITHUB_WORKSPACE/inference-src.tar.gz"
+          # 2-arg form: no CI copy yet on a fresh runner, so pass the
+          # source image and inject-src.sh prepares the CI copy itself.
+          ./inject-src.sh debian-hurd-amd64-20260314.img "$GITHUB_WORKSPACE/inference-src.tar.gz"
 
       - name: Build and test on real GNU/Hurd
         run: |
