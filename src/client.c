@@ -17,9 +17,11 @@
  * interactive mode refuses to start without a terminal (exit 2).
  */
 
-/* cfmakeraw() is a BSD extension: _GNU_SOURCE (not just
- * _POSIX_C_SOURCE) is needed to declare it, and GCC >= 14 makes an
- * implicit declaration a hard error in C23. */
+/* The interactive mode uses POSIX cbreak termios, NOT cfmakeraw():
+ * cfmakeraw() clears OPOST (hence ONLCR), and then every '\n' printed
+ * by the program moves down one line without returning to column 0 -
+ * the staircase display.  With OPOST|ONLCR kept, a plain '\n' is
+ * post-processed to CR LF as POSIX specifies. */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -322,10 +324,7 @@ read_line (char *line, size_t linesz, size_t *outlen, bool *escaped)
           {
             line[len] = '\0';
             *outlen = len;
-            if (inf_client_color ())
-                printf ("\r\n");
-            else
-                printf ("\n");
+            printf ("\n");     /* ONLCR is on: this emits CR LF */
             return true;
           }
         if (c == 0x03)                   /* Ctrl-C */
@@ -381,10 +380,10 @@ read_line (char *line, size_t linesz, size_t *outlen, bool *escaped)
             if (nm > 1)
               {
                 line[len] = '\0';
-                printf ("\r\n");
+                printf ("\n");         /* ONLCR emits CR LF */
                 for (size_t i = 0; i < nm && i < 16; i++)
                     printf ("%s  ", list[i]);
-                printf ("\r\n");
+                printf ("\n");
                 redraw_line (line);
                 continue;
               }
@@ -478,7 +477,13 @@ main (int argc, char **argv)
     fputs (banner, stdout);
     cmd_status ();
 
-    cfmakeraw (&tio);
+    /* POSIX cbreak: disable the line discipline and the echo, keep
+       OPOST|ONLCR so '\n' in the output still emits CR LF (cfmakeraw
+       would clear OPOST and the display would staircase). */
+    tio.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    tio.c_lflag &= ~(ECHO | ICANON | IEXTEN);
+    tio.c_cc[VMIN] = 1;
+    tio.c_cc[VTIME] = 0;
     tcsetattr (STDIN_FILENO, TCSANOW, &tio);
 
     char line[INF_PROMPT_MAX];

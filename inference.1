@@ -1,0 +1,143 @@
+.\" SPDX-License-Identifier: GPL-3.0-or-later
+.\" SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
+.TH INFERENCE 1 "2026-11-20" "GNU AI 0.1.0" "Commandes utilisateur"
+.SH NOM
+.B inference
+\- client interactif du translator
+.I /inference
+(GNU AI, phase 2)
+.SH SYNOPSIS
+.B inference
+.RI [ --mount " DIR" ]
+.SH DESCRIPTION
+.B inference
+est le client en ligne de commande du translator Hurd
+.BR inference-translator ,
+monté sur
+.IR /inference .
+Il parle au point de montage en POSIX pur (open/read/write) et fonctionne
+sur tout hôte, Hurd ou non.
+.PP
+Au démarrage, le client affiche la bannière et l'état lu dans
+.IR <montage>/status ,
+puis lit des lignes au prompt « > ».  Une ligne commençant par « / » est
+une commande (voir COMMANDES) ; toute autre ligne est accumulée dans le
+buffer du prompt.  « \fB/submit\fR » écrit le buffer dans
+.I <montage>/prompt
+et la requête structurée se lit dans
+.IR <montage>/request .
+.SH OPTIONS
+.TP
+.BR \-m " DIR" ", " \-\-mount " DIR"
+Point de montage du translator (défaut :
+.IR /inference ,
+ou la variable
+.BR INFERENCE_MOUNT ).
+.TP
+.B \-V ", " \-\-version
+Affiche la version et quitte.
+.TP
+.B \-h ", " \-\-help
+Affiche l'usage et quitte.
+.SH COMMANDES
+Une ligne commençant par « / » :
+.TP
+.B /editor
+Ouvre le buffer dans l'éditeur ($VISUAL, puis $EDITOR, puis nano, puis vi)
+sur un fichier temporaire, puis le relit.
+.TP
+.BI /task " TÂCHE"
+Force le type de tâche pour la prochaine soumission.  TÂCHE est l'un de
+.BR summarize ", " translate ", " answer ", " classify ", " custom .
+Écrit dans
+.IR <montage>/task .
+.TP
+.B /submit
+Analyse le buffer (extraction d'URL, détection de tâche) et soumet la
+requête : écrit
+.I <montage>/prompt
+puis affiche
+.IR request ", " status .
+.TP
+.B /status
+Relit et affiche
+.IR <montage>/status .
+.TP
+.B /help
+Affiche l'aide intégrée (commandes, tâches, édition, nœuds).
+.TP
+.B /quit
+Quitte (exit 0).
+.SH ÉDITION DE LIGNE
+En mode brut (termios) :
+.TP
+.B DEL / retour arrière (0x7f, 0x08)
+Efface le dernier caractère ; la flèche gauche (ESC [ D) fait de même.
+Les autres séquences CSI (flèches, Suppr) sont ignorées proprement.
+.TP
+.B Tab (0x09)
+Auto-complétion : complète une commande « /... » (ex. « /st<Tab> » →
+« /status ») ou l'argument de « /task " (ex. « /task su<Tab> » →
+« summarize »).  Plusieurs correspondances : la liste est affichée.
+.TP
+.B \e (antislash) en tête de ligne
+Échappe le « / » initial : la ligne est alors du texte libre, même si
+elle commence par « / » (ex. « \e/status » est un prompt, pas une
+commande).
+.TP
+.B Ctrl-C
+Interrompt la lecture (quitte).
+.TP
+.B Ctrl-D sur une ligne vide
+Quitte (EOF).
+.SH FICHIERS (nœuds POSIX du translator)
+.TP
+.I <montage>/prompt
+Écriture : le prompt brut soumis.
+.TP
+.I <montage>/task
+Écriture : override de tâche (contrat gelé).
+.TP
+.I <montage>/request
+Lecture : requête JSON de type 1, octet exact :
+« {"prompt":"...","task":"...","urls":[...],"params":{}} ».
+.TP
+.I <montage>/status
+Lecture : état de l'interface (idle, composing, parsed, submitted).
+.TP
+.I <montage>/urls
+Lecture : URL extraites du prompt.
+.TP
+.I <montage>/params ", " <montage>/version
+Lecture : paramètres (vide en phase 0) et version du translator.
+.SH ENVIRONNEMENT
+.TP
+.B INFERENCE_MOUNT
+Point de montage par défaut (remplacé par
+.BR \-\-mount ).
+.TP
+.B NO_COLOR
+Si définie et non vide, désactive les couleurs ANSI.
+.TP
+.B VISUAL ", " EDITOR
+Éditeur utilisé par
+.BR /editor .
+.SH EXEMPLES
+.TP
+Lancer le client sur le montage par défaut :
+.B inference
+.TP
+Soumettre un prompt en POSIX pur, sans le client :
+.B "echo 'résume https://example.org/article' > /inference/prompt"
+.B "cat /inference/request"
+.TP
+Forcer la tâche puis soumettre via le client :
+.B "/task summarize"
+.B "résume https://example.org/article en 5 points"
+.B "/submit"
+.SH VOIR AUSSI
+.BR settrans (1),
+.BR inference-translator (1),
+le SPEC.md du projet (contrats gelés du trio JSON request/status/result).
+.SH LICENCE
+GPL-3.0-or-later.
