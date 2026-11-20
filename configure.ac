@@ -3,7 +3,10 @@
 
 AC_INIT([inference-translator], [0.1.0], [claire@gnu-ai.org])
 AC_CONFIG_SRCDIR([src/main.c])
-AM_INIT_AUTOMAKE([-Wall -Werror foreign subdir-objects])
+# NB: no -Werror here - automake prefix-matches our install.sh against
+# its required aux file install-sh and warns; with -Werror that warning
+# would break every fresh build (autogen.sh / autoreconf -i).
+AM_INIT_AUTOMAKE([-Wall foreign subdir-objects])
 
 AC_CANONICAL_HOST
 
