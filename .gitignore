@@ -87,3 +87,7 @@ tests/test_fs
 
 # Automake dir stamps
 .dirstamp
+
+# Python bytecode from local runs
+__pycache__/
+*.pyc
