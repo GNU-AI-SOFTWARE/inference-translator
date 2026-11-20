@@ -15,14 +15,6 @@ phase ; les critères d'acceptation de chaque phase sont dans le plan.
 
 ## À faire
 
-### Phase 0 — Spécification et contrats
-- [ ] Gel du trio JSON `request`/`status`/`result` et de l'arborescence `/inference`
-- [ ] Gel du mode distant : transport SSH (commande serveur, session), format de trame, poignée de main `hello`, version, registre des clés publiques SSH
-- [ ] Protocole éditeur : résolution `$VISUAL` → `$EDITOR` → `nano` → `vi`, fichier temporaire, sémantique du code de sortie
-- [ ] Palette et conventions d'affichage (codes ANSI, thèmes de base, réglage `NO_COLOR`)
-- [ ] Convention des points de montage : `/inference`, `/orchestrate`
-- [ ] Livrable : `SPEC.md` + squelette de code compilable
-
 ### Phase 1 — MVP : le translator `/inference` (mode local)
 - [ ] Translator monté via `settrans` sur `/inference`
 - [ ] `write` du prompt sur `/inference/prompt` ; extraction des URLs (expression rationnelle simple)
@@ -31,7 +23,7 @@ phase ; les critères d'acceptation de chaque phase sont dans le plan.
 
 ### Phase 2 — Le client `inference` : IHM minimale
 - [ ] Bannière colorée, saisie multi-lignes (`termios`), commandes de base (`/editor`, `/task`, `/submit`, `/status`, `/quit`)
-- [ ] Intégration `$EDITOR` : composition du prompt, relecture du buffer, re-soumission
+- [ ] Intégration `$EDITOR` : composition du prompt dans nano/vim/emacs, relecture du buffer, re-soumission
 - [ ] Narration des actions avec le nœud POSIX concerné à chaque étape
 
 ### Phase 3 — Interface riche : couleurs, animations, streaming
@@ -65,4 +57,10 @@ _(rien)_
 
 ## Fait
 
-_(rien — le dépôt en est au squelette autotools ; la première carte est la phase 0)_
+### Phase 0 — Spécification et contrats
+- [x] Gel du trio JSON `request`/`status`/`result` et de l'arborescence `/inference` (SPEC.md §1–§2)
+- [x] Gel du mode distant : transport SSH (commande serveur, session), format de trame, poignée de main `hello`, version, registre des clés publiques SSH (SPEC.md §7)
+- [x] Protocole éditeur : résolution `$VISUAL` → `$EDITOR` → `nano` → `vi`, fichier temporaire, sémantique du code de sortie (SPEC.md §5)
+- [x] Palette et conventions d'affichage (codes ANSI, thèmes de base, réglage `NO_COLOR`) (SPEC.md §6)
+- [x] Convention des points de montage : `/inference`, `/orchestrate` (SPEC.md §4)
+- [x] Livrable : `SPEC.md` + squelette de code compilable (cœur C23 pur + tests 36/36 + prototype CLI ncurses `--cli`)

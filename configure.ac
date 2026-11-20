@@ -39,6 +39,23 @@ AC_SUBST([C23_CFLAGS], [$inf_cv_c23])
 
 AC_CONFIG_HEADERS([config.h])
 
+# The --cli interface prototype (src/cli.c) uses ncurses, strictly
+# optionally: the PLAN.md rule "buildable with the GNU toolchain
+# alone" applies to the base binary, not to the prototype.  Without
+# ncurses, HAVE_NCURSES stays undefined and --cli answers with an
+# explicit message (tests/test_cli.sh).
+AC_CHECK_HEADERS([ncurses.h],
+  [inf_cv_ncurses_h=yes], [inf_cv_ncurses_h=no])
+AS_IF([test "x$inf_cv_ncurses_h" = xyes],
+  [AC_SEARCH_LIBS([initscr], [ncursesw ncurses],
+     [inf_cv_ncurses=yes], [inf_cv_ncurses=no])],
+  [inf_cv_ncurses=no])
+AS_IF([test "x$inf_cv_ncurses" = xyes],
+  [AC_DEFINE([HAVE_NCURSES], [1],
+     [Define to 1 when ncurses is available for the optional --cli prototype.])],
+  [AC_MSG_NOTICE([ncurses not found: --cli prototype disabled, the core still builds])])
+AM_CONDITIONAL([HAVE_NCURSES], [test "x$inf_cv_ncurses" = xyes])
+
 # Phase 0 : le squelette n'a aucune dépendance externe — ni trivfs,
 # ni netfs, ni éditeur.  Les bibliothèques Hurd n'arrivent qu'avec
 # la phase 1 (translator /inference) ; le mode distant de la
