@@ -1,0 +1,429 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org> */
+
+/*
+ * client.c -- The phase 2 `inference` client (SPEC.md section 12).
+ *
+ * Minimal interactive IHM: colored banner, multi-line input in raw
+ * termios mode, the frozen slash commands (/editor, /task, /submit,
+ * /status, /quit), $EDITOR integration on a /tmp file, and a
+ * narration line naming the POSIX node involved at each step.
+ *
+ * The client only ever talks to the mount point through plain POSIX
+ * open/read/write: default /inference, overridable with --mount or
+ * $INFERENCE_MOUNT (used by the tests against a fake tree).
+ *
+ * No TUI library: raw termios + ANSI codes, NO_COLOR honored, and the
+ * interactive mode refuses to start without a terminal (exit 2).
+ */
+
+#define _POSIX_C_SOURCE 200809L
+
+#include "inference.h"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <unistd.h>
+
+#ifndef VERSION
+#define VERSION "0.1.0"
+#endif
+
+static struct termios g_saved_tio;
+static bool g_tio_saved;
+static const char *g_mount = INF_MOUNT_INFERENCE;
+
+static char g_buf[INF_PROMPT_MAX];      /* prompt being composed */
+static size_t g_blen;
+
+static void
+restore_tio (void)
+{
+    if (g_tio_saved)
+        tcsetattr (STDIN_FILENO, TCSANOW, &g_saved_tio);
+}
+
+static void
+on_signal (int sig)
+{
+    (void) sig;
+    restore_tio ();
+    _exit (0);
+}
+
+/* --- POSIX node access through the mount point --------------------- */
+
+static int
+write_node (const char *node, const char *data, size_t len)
+{
+    char path[4096];
+    snprintf (path, sizeof path, "%s/%s", g_mount, node);
+    int fd = open (path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0)
+        return -1;
+    size_t off = 0;
+    while (off < len)
+      {
+        ssize_t n = write (fd, data + off, len - off);
+        if (n <= 0)
+          {
+            close (fd);
+            return -1;
+          }
+        off += (size_t) n;
+      }
+    if (close (fd) != 0)
+        return -1;
+    return 0;
+}
+
+/* Returns the content length, or -1 when unreadable (absent node,
+ * ENODATA before any prompt...). */
+static ssize_t
+read_node (const char *node, char *out, size_t outsz)
+{
+    char path[4096];
+    snprintf (path, sizeof path, "%s/%s", g_mount, node);
+    int fd = open (path, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    ssize_t total = 0;
+    for (;;)
+      {
+        if ((size_t) total >= outsz - 1)
+          {
+            /* keep reading to report the full length, discard */
+            char sink[512];
+            ssize_t n = read (fd, sink, sizeof sink);
+            if (n < 0)
+                break;
+            if (n == 0)
+                break;
+            total += n;
+            continue;
+          }
+        ssize_t n = read (fd, out + total, outsz - 1 - (size_t) total);
+        if (n < 0)
+            break;
+        if (n == 0)
+            break;
+        total += n;
+      }
+    close (fd);
+    if (outsz > 0)
+        out[total < (ssize_t) outsz - 1 ? total : (ssize_t) outsz - 1] = '\0';
+    return total;
+}
+
+/* --- narration ------------------------------------------------------ */
+
+static void
+narrate (const char *verb, const char *node)
+{
+    char line[4200];
+    inf_client_narrate (line, sizeof line, verb, g_mount, node);
+    if (inf_client_color ())
+        printf ("\033[2m→ %s\033[0m\n", line);
+    else
+        printf ("→ %s\n", line);
+}
+
+/* --- commands ------------------------------------------------------- */
+
+static void
+cmd_status (void)
+{
+    char val[256];
+    narrate ("read", INF_NODE_STATUS);
+    if (read_node (INF_NODE_STATUS, val, sizeof val) < 0)
+        printf ("  status illisible (translator non monté ?)\n");
+    else
+        printf ("  status: %s\n", val);
+}
+
+static void
+cmd_task (const char *arg)
+{
+    enum inf_task t;
+    if (!inf_task_from_name (arg, strlen (arg), &t))
+      {
+        printf ("  tâche inconnue: %s (summarize|translate|answer|classify|"
+                "custom)\n", arg);
+        return;
+      }
+    narrate ("write", INF_NODE_TASK);
+    if (write_node (INF_NODE_TASK, arg, strlen (arg)) != 0)
+        printf ("  écriture refusée: %s\n", strerror (errno));
+    else
+        printf ("  tâche forcée: %s\n", inf_task_name (t));
+}
+
+static void
+cmd_submit (void)
+{
+    if (g_blen == 0)
+      {
+        printf ("  rien à soumettre (le buffer est vide)\n");
+        return;
+      }
+    narrate ("write", INF_NODE_PROMPT);
+    if (write_node (INF_NODE_PROMPT, g_buf, g_blen) != 0)
+      {
+        printf ("  écriture refusée: %s\n", strerror (errno));
+        return;
+      }
+
+    /* Explain the request (pure core on the submitted buffer), then
+     * show what the translator actually rendered. */
+    struct inf_request req;
+    req.prompt = g_buf;
+    size_t nurls = inf_parse_prompt (g_buf, &req);
+    printf ("  requête soumise: tâche=%s, %zu URL(s)\n",
+            inf_task_name (req.task), nurls);
+
+    char reqjson[INF_JSON_MAX];
+    narrate ("read", INF_NODE_REQUEST);
+    if (read_node (INF_NODE_REQUEST, reqjson, sizeof reqjson) < 0)
+        printf ("  request illisible avant soumission\n");
+    else
+        printf ("  request: %s\n", reqjson);
+
+    char val[256];
+    narrate ("read", INF_NODE_STATUS);
+    if (read_node (INF_NODE_STATUS, val, sizeof val) >= 0)
+        printf ("  status: %s\n", val);
+
+    g_blen = 0;
+    g_buf[0] = '\0';
+}
+
+static void
+cmd_editor (void)
+{
+    char tmpl[] = "/tmp/inf-editor-XXXXXX";
+    int fd = mkstemp (tmpl);
+    if (fd < 0)
+      {
+        printf ("  impossible de créer le fichier temporaire: %s\n",
+                strerror (errno));
+        return;
+    }
+    if (write (fd, g_buf, g_blen) != (ssize_t) g_blen)
+        {
+            /* non-fatal: the editor starts with an empty file */
+        }
+    close (fd);
+
+    const char *editor = inf_client_editor ();
+    narrate ("write", tmpl);            /* the buffer goes to the editor */
+    char cmd[4400];
+    snprintf (cmd, sizeof cmd, "%s '%s'", editor, tmpl);
+    pid_t pid = fork ();
+    if (pid == 0)
+      {
+        restore_tio ();
+        execl ("/bin/sh", "sh", "-c", cmd, (char *) NULL);
+        _exit (127);
+      }
+    int wstatus = 0;
+    waitpid (pid, &wstatus, 0);
+    if (!WIFEXITED (wstatus) || WEXITSTATUS (wstatus) != 0)
+      {
+        printf ("  éditeur quitté avec un code non nul: buffer inchangé\n");
+        unlink (tmpl);
+        return;
+      }
+
+    narrate ("read", tmpl);             /* re-read the buffer (SPEC.md §5) */
+    int rfd = open (tmpl, O_RDONLY);
+    if (rfd >= 0)
+      {
+        ssize_t n = read (rfd, g_buf, INF_PROMPT_MAX - 1);
+        close (rfd);
+        if (n < 0)
+            n = 0;
+        g_blen = (size_t) n;
+        g_buf[g_blen] = '\0';
+      }
+    unlink (tmpl);
+    printf ("  buffer relu (%zu octets)\n", g_blen);
+}
+
+/* --- input loop ------------------------------------------------------ */
+
+/* Read one line in raw mode.  Returns false on EOF/quit. */
+static bool
+read_line (char *line, size_t linesz, size_t *outlen)
+{
+    size_t len = 0;
+    for (;;)
+      {
+        char c;
+        ssize_t n = read (STDIN_FILENO, &c, 1);
+        if (n <= 0)
+            return false;
+        if (c == '\r' || c == '\n')
+          {
+            line[len] = '\0';
+            *outlen = len;
+            if (inf_client_color ())
+                printf ("\r\n");
+            else
+                printf ("\n");
+            return true;
+          }
+        if (c == 0x03)                   /* Ctrl-C */
+            return false;
+        if (c == 0x04 && len == 0)      /* Ctrl-D on an empty line */
+            return false;
+        if ((c == 0x7f || c == 0x08) && len > 0)
+          {
+            len--;
+            if (inf_client_color ())
+                printf ("\b \b");
+            continue;
+          }
+        if (len + 1 < linesz)
+          {
+            line[len++] = c;
+            if (write (STDOUT_FILENO, &c, 1) != 1)
+                return false;
+          }
+      }
+}
+
+static void
+usage (FILE *out)
+{
+    fprintf (out,
+             "Usage: inference [--mount DIR] [--version] [--help]\n"
+             "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
+             "Commandes: /editor /task TÂCHE /submit /status /quit.\n");
+}
+
+int
+main (int argc, char **argv)
+{
+    for (int i = 1; i < argc; i++)
+      {
+        if (strcmp (argv[i], "--mount") == 0 || strcmp (argv[i], "-m") == 0)
+          {
+            if (++i >= argc)
+              {
+                usage (stderr);
+                return 2;
+              }
+            g_mount = argv[i];
+          }
+        else if (strcmp (argv[i], "--version") == 0)
+          {
+            printf ("inference (GNU AI) %s\n", VERSION);
+            return 0;
+          }
+        else if (strcmp (argv[i], "--help") == 0)
+          {
+            usage (stdout);
+            return 0;
+          }
+        else
+          {
+            fprintf (stderr, "inference: option inconnue: %s\n", argv[i]);
+            usage (stderr);
+            return 2;
+          }
+      }
+    const char *env = getenv ("INFERENCE_MOUNT");
+    if (env != NULL && *env != '\0' && argc == 1)
+        g_mount = env;
+
+    /* SPEC.md section 6: the interactive mode refuses to start
+     * without a terminal, with an explicit message. */
+    if (!isatty (STDIN_FILENO) || !isatty (STDOUT_FILENO))
+      {
+        fprintf (stderr,
+                 "inference: le mode interactif exige un terminal "
+                 "(stdin et stdout doivent être des TTY)\n");
+        return 2;
+      }
+
+    struct termios tio;
+    if (tcgetattr (STDIN_FILENO, &tio) != 0)
+        return 2;
+    g_saved_tio = tio;
+    g_tio_saved = true;
+    atexit (restore_tio);
+    signal (SIGINT, on_signal);
+    signal (SIGTERM, on_signal);
+    signal (SIGHUP, on_signal);
+
+    char banner[256];
+    inf_client_banner (banner, sizeof banner, VERSION);
+    fputs (banner, stdout);
+    cmd_status ();
+
+    cfmakeraw (&tio);
+    tcsetattr (STDIN_FILENO, TCSANOW, &tio);
+
+    char line[INF_PROMPT_MAX];
+    for (;;)
+      {
+        if (inf_client_color ())
+            printf ("\033[1;32m> \033[0m");
+        else
+            printf ("> ");
+        fflush (stdout);
+
+        size_t llen;
+        if (!read_line (line, sizeof line, &llen))
+            break;
+
+        char arg[256];
+        enum inf_client_cmd cmd = inf_client_parse_command (line, arg,
+                                                            sizeof arg);
+        if (cmd == INF_CMD_NONE)
+          {
+            /* plain text: append to the prompt buffer, multi-line */
+            if (g_blen + llen + 1 < INF_PROMPT_MAX)
+              {
+                memcpy (g_buf + g_blen, line, llen);
+                g_blen += llen;
+                g_buf[g_blen++] = '\n';
+                g_buf[g_blen] = '\0';
+              }
+            continue;
+          }
+        switch (cmd)
+          {
+          case INF_CMD_QUIT:
+            restore_tio ();
+            return 0;
+          case INF_CMD_STATUS:
+            cmd_status ();
+            break;
+          case INF_CMD_TASK:
+            cmd_task (arg);
+            break;
+          case INF_CMD_SUBMIT:
+            cmd_submit ();
+            break;
+          case INF_CMD_EDITOR:
+            cmd_editor ();
+            break;
+          case INF_CMD_UNKNOWN:
+          default:
+            printf ("  commande inconnue: %s\n", line);
+            break;
+          }
+      }
+
+    restore_tio ();
+    return 0;
+}

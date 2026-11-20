@@ -293,3 +293,46 @@ echo "résume https://example.org/article" | tee /inference/prompt
 cat /inference/request              # JSON type 1 exact
 cat /inference/status               # parsed
 ```
+
+## 12. Phase 2 — le client `inference` (IHM minimale)
+
+Nouveau binaire `inference` (build portable, aucune bibliothèque TUI :
+termios brut + codes ANSI). Il ne parle qu'au point de montage, par
+`open`/`read`/`write` POSIX : `/inference` par défaut, surchargeable
+par `--mount DIR` ou `$INFERENCE_MOUNT` (utilisé par les tests avec un
+faux arbre).
+
+- **Bannière** colorée (nom, version, contrat), `NO_COLOR` respecté
+  (section 6) ; sans TTY sur stdin **et** stdout, le mode interactif
+  refuse de démarrer avec un message explicite (exit 2).
+- **Saisie multi-lignes** en mode brut `termios` : chaque ligne non
+  commande est ajoutée au buffer du prompt ; `Entrée` termine une
+  ligne, `Retour arrière` efface, `Ctrl-C`/`Ctrl-D` (ligne vide)
+  quittent.
+- **Commandes slash** (table gelée `inf_actions[]`) :
+  - `/editor` : écrit le buffer dans un fichier temporaire
+    `/tmp/inf-editor-XXXXXX`, lance l'éditeur (`$VISUAL` → `$EDITOR` →
+    `nano` → `vi`, section 5) par `fork`+`exec` ; code de sortie nul →
+    le fichier est relu dans le buffer (relecture avant re-soumission)
+    ; code non nul → buffer inchangé ;
+  - `/task TÂCHE` : valide le nom (`summarize|translate|answer|classify|custom`)
+    puis écrit `<mount>/task` ;
+  - `/submit` : écrit le buffer dans `<mount>/prompt`, puis lit
+    `<mount>/request` (JSON type 1 affiché) et `<mount>/status` ;
+  - `/status` : lit `<mount>/status` ;
+  - `/quit` : quitte (exit 0).
+- **Narration** : chaque étape affiche une ligne `→ <verbe> <mount>/<nœud>`
+  nommant le nœud POSIX concerné (ex. `→ write /inference/prompt`).
+
+### Vérification
+
+```sh
+gcc -std=c23 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
+    -Iinclude -o /tmp/test_client tests/test_client.c \
+    src/contract.c src/expr.c src/actions.c src/spinner.c src/fs.c src/client-core.c
+/tmp/test_client                    # cœur pur du client (20/20)
+./autogen.sh && ./configure && make && make check   # + test_client.sh (pty via script(1))
+sh tests/test_client.sh src/inference
+# Sur GNU/Hurd avec le translator monté, en interactif (console série) :
+inference            # puis /editor, /submit, /status, /quit
+```

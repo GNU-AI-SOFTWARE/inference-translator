@@ -64,8 +64,8 @@ node_index (const char *node)
     return -1;
 }
 
-static bool
-task_from_name (const char *s, size_t len, enum inf_task *out)
+bool
+inf_task_from_name (const char *s, size_t len, enum inf_task *out)
 {
     static const enum inf_task all[] =
     {
@@ -127,7 +127,7 @@ inf_fs_write (struct inf_fs *fs, const char *node, const char *data,
                            || data[len - 1] == ' ' || data[len - 1] == '\t'))
             len--;
         enum inf_task t;
-        if (!task_from_name (data, len, &t))
+        if (!inf_task_from_name (data, len, &t))
             return -1;
         fs->task = t;
         fs->task_overridden = true;

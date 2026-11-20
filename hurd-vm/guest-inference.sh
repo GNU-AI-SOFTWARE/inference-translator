@@ -66,5 +66,12 @@ echo "--- request (override) ---"; cat /inference/request; echo   # must contain
 
 ./src/inference-translator --version    # 0.1.0
 
+# phase 2 client: smoke test against the mounted translator
+./src/inference --version               # inference (GNU AI) 0.1.0
+if ./src/inference --mount /inference </dev/null >/dev/null 2>&1; then
+    echo "FAIL: the client must refuse a non-TTY stdin" >&2
+    exit 1
+fi
+
 settrans -g /inference
 echo GUEST-INF-OK
