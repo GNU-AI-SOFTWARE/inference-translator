@@ -82,6 +82,8 @@ Makefile.in
 *.log
 *.trs
 src/inference-translator
+tests/test_contract
+tests/test_fs
 
 # Automake dir stamps
 .dirstamp

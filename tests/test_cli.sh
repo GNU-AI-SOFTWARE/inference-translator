@@ -35,6 +35,17 @@ fi
     || fail "--help must tell where to report bugs"
 "$BINARY" -h >/dev/null 2>&1 || fail "-h must exit 0"
 
+# --cli without a TTY must fail with an explicit message.  This holds
+# with and without ncurses: main.c refuses when HAVE_NCURSES is
+# unset, cli.c refuses when stdin/stdout is not a terminal.
+TMPERR=$(mktemp)
+trap 'rm -f "$TMPERR"' EXIT
+if "$BINARY" --cli </dev/null >/dev/null 2>"$TMPERR"; then
+    fail "--cli without a TTY must exit non-zero"
+fi
+grep -q -- '--cli' "$TMPERR" \
+    || fail "--cli without a TTY must print an explicit message"
+
 if [ "$FAIL" = 0 ]; then
     say "test_cli: OK"
     exit 0

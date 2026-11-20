@@ -3,15 +3,40 @@
 
 bin_PROGRAMS = inference-translator
 
-# --- Phase 0: the compilable skeleton --------------------------------
+# --- The portable core -------------------------------------------------
 #
-# The translator /inference (prompt -> structured request, the trio
-# request/status/result of PLAN.md section 3.3) arrives with phase 1
-# built on trivfs; the interactive client `inference` with phase 2.
-# The skeleton answers the GNU base commands so that the binary is
-# inspectable on any POSIX system, Hurd or not.
+# contract.c (frozen contracts of SPEC.md), expr.c, actions.c,
+# spinner.c and fs.c (the /inference node engine of phase 1) are pure
+# C23/POSIX with no external dependency.  The library is shared by the
+# binary and the test suite.
+noinst_LIBRARIES = libinfcore.a
+libinfcore_a_SOURCES = contract.c expr.c actions.c spinner.c fs.c
 
+noinst_HEADERS = translator.h
+
+# --- The binary face, per host -----------------------------------------
+#
+# On GNU/Hurd, main-hurd.c follows the canonical libnetfs translator
+# structure (netfs_startup then netfs_server_loop) and netfs-hooks.c
+# maps the RPCs onto fs.c; the binary is the /inference translator.
+# On any other host, main.c builds the portable verification binary
+# (GNU base commands, --cli prototype, phase message).
+if ON_HURD
+inference_translator_SOURCES = main-hurd.c netfs-hooks.c
+inference_translator_CPPFLAGS = $(AM_CPPFLAGS) -DON_HURD
+inference_translator_LDADD = libinfcore.a -lnetfs -lfshelp -lports \
+                             -lihash -lshouldbeinlibc
+else
 inference_translator_SOURCES = main.c
+inference_translator_LDADD = libinfcore.a
+endif
 
-AM_CPPFLAGS = -I$(top_srcdir)
+# The ncurses --cli prototype is built only when configure found
+# ncurses (HAVE_NCURSES); the core stays buildable with the GNU
+# toolchain alone (PLAN.md section 4).
+if HAVE_NCURSES
+inference_translator_SOURCES += cli.c
+endif
+
+AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/include
 AM_CFLAGS = $(C23_CFLAGS) -Wall -Wextra

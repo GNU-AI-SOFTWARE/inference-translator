@@ -27,10 +27,16 @@
 #include <config.h>
 #endif
 
+#ifndef VERSION
+#define VERSION "0.1.0"
+#endif
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "inference.h"
 
 /* --- The GNU base commands ----------------------------------------
    Every binary of the GNU AI stack answers --version and --help
@@ -58,6 +64,12 @@ print_help (void)
     printf ("\n");
     printf ("  -h, --help     display this help and exit\n");
     printf ("  -V, --version  output version information and exit\n");
+#ifdef HAVE_NCURSES
+    printf ("      --cli      ncurses interface prototype (needs a terminal)\n");
+#else
+    printf ("      --cli      ncurses interface prototype"
+            " (not in this build: no ncurses)\n");
+#endif
     printf ("\n");
     printf ("Phase 1 mounts the translator:\n");
     printf ("  settrans -a /inference inference-translator\n");
@@ -101,11 +113,27 @@ main (int argc, char *argv[])
     if (handle_gnu_options (argc, argv))
         return EXIT_SUCCESS;
 
-    /* Phase 0: nothing is mounted yet.  Refuse cleanly instead of
-     * dying deep inside a library — the same exit path that
-     * settrans will report as "Translator died". */
-    fprintf (stderr, "inference-translator: phase 0 skeleton —"
-             " the /inference translator arrives with phase 1"
-             " (see PLAN.md)\n");
+    /* Phase 0 interface prototype: the ncurses CLI, only when the
+     * build found ncurses; it refuses cleanly without a TTY. */
+    for (int i = 1; i < argc; i++)
+        if (strcmp (argv[i], "--cli") == 0)
+            {
+#ifdef HAVE_NCURSES
+                return inf_cli_run ();
+#else
+                fprintf (stderr, "inference-translator: --cli is not in"
+                         " this build: configure did not find ncurses"
+                         " (HAVE_NCURSES); the core still works\n");
+                return EXIT_FAILURE;
+#endif
+            }
+
+    /* This portable build (non-Hurd host) has no server loop: refuse
+     * cleanly.  On GNU/Hurd the binary is built from main-hurd.c and
+     * mounted with settrans. */
+    fprintf (stderr, "inference-translator: portable build — on GNU/Hurd,"
+             " mount the translator with:\n"
+             "  settrans -a /inference inference-translator\n"
+             " (see PLAN.md and SPEC.md)\n");
     return EXIT_FAILURE;
 }
