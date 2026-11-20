@@ -120,10 +120,10 @@ index 0000000..8384b2c
 +echo GUEST-INF-OK
 diff --git a/guest-netfix.sh b/guest-netfix.sh
 new file mode 100755
-index 0000000..6ad8940
+index 0000000..d13d0f3
 --- /dev/null
 +++ b/guest-netfix.sh
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,70 @@
 +#!/bin/sh
 +# SPDX-License-Identifier: GPL-3.0-or-later
 +# SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
@@ -143,7 +143,9 @@ index 0000000..6ad8940
 +
 +ls -l /dev/eth0 2>&1 || true
 +
-+printf 'nameserver 10.0.2.3\n' > /etc/resolv.conf
++rm -f /etc/resolv.conf
++printf 'nameserver 10.0.2.3\noptions timeout:2 attempts:2\n' > /etc/resolv.conf
++cat /etc/resolv.conf
 +
 +# The image sometimes ships /run/network/ifstate as a directory,
 +# which makes ifup fail at boot:
@@ -162,10 +164,28 @@ index 0000000..6ad8940
 +sleep 2
 +ifconfig -a
 +
++i=0
++until getent hosts deb.debian.org >/dev/null 2>&1; do
++    i=$((i+1))
++    [ "$i" -ge 10 ] && break
++    sleep 2
++done
 +if getent hosts deb.debian.org >/dev/null 2>&1; then
 +    echo "DNS-OK"
 +else
-+    echo "DNS-KO"
++    # UDP may be broken through netdde/slirp; force DNS over TCP:
++    rm -f /etc/resolv.conf
++    printf 'nameserver 10.0.2.3\noptions usevc timeout:2 attempts:2\n' > /etc/resolv.conf
++    if getent hosts deb.debian.org >/dev/null 2>&1; then
++        echo "DNS-OK-TCP"
++    else
++        echo "DNS-KO"
++    fi
++fi
++if timeout 5 bash -c 'exec 3<>/dev/tcp/10.0.2.3/53' 2>/dev/null; then
++    echo "TCP-DNS-10.0.2.3-OK"
++else
++    echo "TCP-DNS-10.0.2.3-KO"
 +fi
 +ping -c1 -W2 10.0.2.2 2>&1 | tail -1
 +if wget -q -O /dev/null http://deb.debian.org/ 2>/dev/null; then
@@ -204,10 +224,10 @@ index 1a602fd..d30c67d 100644
              if vm.proc.poll() is None:
 diff --git a/inject-src.sh b/inject-src.sh
 new file mode 100755
-index 0000000..5dff059
+index 0000000..539207a
 --- /dev/null
 +++ b/inject-src.sh
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,42 @@
 +#!/bin/sh
 +# SPDX-License-Identifier: GPL-3.0-or-later
 +# SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
@@ -217,8 +237,9 @@ index 0000000..5dff059
 +# debugfs, put the partition back.  Used to feed pre-built source
 +# tarballs to guest scripts when the guest network is unusable.
 +#
-+#   ./inject-src.sh <source-image> <file-to-inject>
-+#   e.g. ./inject-src.sh debian-hurd-amd64-20260314.img ~/inference-src.tar.gz
++#   ./inject-src.sh <file-to-inject>
++#   ./inject-src.sh <source-image> <file-to-inject>   (image arg optional)
++#   e.g. ./inject-src.sh ~/inference-src.tar.gz
 +#
 +# Requires: no VM running on the image, e2fsprogs, python3 (uses
 +# hurd_vm.root_partition).  The CI image is modified in place; pass
@@ -226,13 +247,15 @@ index 0000000..5dff059
 +
 +set -eu
 +
-+src=${1:?usage: inject-src.sh <source-image> <file>}
-+file=${2:?missing file}
++case $# in
++    1) file=$1 ;;
++    2) file=$2 ;;   # first arg (source image) is informational only
++    *) echo "usage: inject-src.sh [source-image] <file>" >&2; exit 2 ;;
++esac
 +here=$(cd "$(dirname "$0")" && pwd)
-+ci=${HURD_VM_CI_IMAGE:-}
-+if [ -z "$ci" ]; then
-+    ci="$here/$(basename "$src" .img)-ci.img"
-+fi
++# Same default as hurd_vm.py (CI_IMAGE), overridable the same way;
++# the CI copy is always named debian-hurd-ci.img next to hurd_vm.py:
++ci=${HURD_VM_CI_IMAGE:-$here/debian-hurd-ci.img}
 +[ -f "$ci" ] || { echo "no CI image: $ci (run hurd_vm.py once first)" >&2; exit 1; }
 +[ -f "$file" ] || { echo "no such file: $file" >&2; exit 1; }
 +
