@@ -17,7 +17,10 @@
  * interactive mode refuses to start without a terminal (exit 2).
  */
 
-#define _POSIX_C_SOURCE 200809L
+/* cfmakeraw() is a BSD extension: _GNU_SOURCE (not just
+ * _POSIX_C_SOURCE) is needed to declare it, and GCC >= 14 makes an
+ * implicit declaration a hard error in C23. */
+#define _GNU_SOURCE
 
 #include "inference.h"
 
