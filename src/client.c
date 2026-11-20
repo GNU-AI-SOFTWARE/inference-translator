@@ -158,6 +158,12 @@ static void
 cmd_task (const char *arg)
 {
     enum inf_task t;
+    if (arg == NULL || *arg == '\0')
+      {
+        printf ("  usage: /task TÂCHE (summarize|translate|answer|classify|"
+                "custom)\n");
+        return;
+      }
     if (!inf_task_from_name (arg, strlen (arg), &t))
       {
         printf ("  tâche inconnue: %s (summarize|translate|answer|classify|"
@@ -390,7 +396,7 @@ main (int argc, char **argv)
         if (!read_line (line, sizeof line, &llen))
             break;
 
-        char arg[256];
+        char arg[256] = "";
         enum inf_client_cmd cmd = inf_client_parse_command (line, arg,
                                                             sizeof arg);
         if (cmd == INF_CMD_NONE)

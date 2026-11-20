@@ -83,7 +83,9 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
 
             if (cmd == INF_CMD_TASK && arg != NULL && argsz > 0)
               {
-                const char *a = sp + 1;
+                /* No space in the line ("/task" alone): sp is NULL, the
+                   argument is empty - never evaluate sp + 1. */
+                const char *a = sp != NULL ? sp + 1 : "";
                 while (*a == ' ')
                     a++;
                 size_t alen = strlen (a);
