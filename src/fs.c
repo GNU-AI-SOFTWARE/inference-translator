@@ -99,6 +99,11 @@ inf_fs_write (struct inf_fs *fs, const char *node, const char *data,
 
     if (strcmp (node, INF_NODE_PROMPT) == 0)
       {
+        /* `echo ... | tee /inference/prompt` appends a newline: trim
+           trailing whitespace before storing and parsing. */
+        while (len > 0 && (data[len - 1] == '\n' || data[len - 1] == '\r'
+                           || data[len - 1] == ' ' || data[len - 1] == '\t'))
+            len--;
         if (len >= INF_PROMPT_MAX)
             len = INF_PROMPT_MAX - 1;
         memcpy (fs->prompt, data, len);
