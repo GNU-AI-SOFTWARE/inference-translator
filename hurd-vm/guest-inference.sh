@@ -39,12 +39,18 @@ else
 fi
 cd inference-translator
 
-./configure && make && make check
-# expected: test_contract 36/36, test_fs 28/28, test_cli.sh OK,
-#           test_posix.sh SKIP 77 (/inference not mounted yet)
+./configure && make
 
+# Mount the translator BEFORE make check: on Hurd, test_posix.sh then
+# runs for real instead of skipping (exit 77); on other systems
+# /inference stays unmounted and test_posix.sh skips as designed.
+settrans -g /inference 2>/dev/null || true   # drop any stale mount
 mkdir -p /inference
 settrans -a /inference ./src/inference-translator
+
+make check || { cat tests/test-suite.log 2>/dev/null || true; exit 1; }
+# expected on Hurd: test_contract 36/36, test_fs 28/28, test_cli.sh OK,
+#           test_posix.sh OK (mounted)
 
 echo "résume https://example.org/article" | tee /inference/prompt
 echo "--- request ---"; cat /inference/request
