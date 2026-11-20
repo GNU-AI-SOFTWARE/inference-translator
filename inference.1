@@ -91,7 +91,8 @@ Affichage temps réel de l'utilisation CPU, mémoire et entrées/sorties
 quitte l'affichage.  Sources : /proc/stat, /proc/meminfo,
 /proc/diskstats, /proc/net/dev sur Linux ; statistiques Mach
 (host_statistics, host_basic_info, vm_info) sur Hurd, où l'IO affiche
-« n/d » (pas de /proc).
+« n/d » (pas de /proc).  Une ligne compacte (CPU | MEM | DSK | NET) est
+de plus affichée au-dessus du prompt « > » à chaque invite.
 .TP
 .B /status
 Relit et affiche

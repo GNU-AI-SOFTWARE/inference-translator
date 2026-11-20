@@ -669,6 +669,13 @@ main (int argc, char **argv)
     char line[INF_PROMPT_MAX];
     for (;;)
       {
+        /* One-line CPU/memory/IO bar above the prompt. */
+        char stats[320];
+        inf_client_stats_line (stats, sizeof stats);
+        if (inf_client_color ())
+            printf ("\033[2m%s\033[0m\n", stats);
+        else
+            printf ("%s\n", stats);
         if (inf_client_color ())
             printf ("\033[1;32m> \033[0m");
         else

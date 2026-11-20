@@ -245,4 +245,9 @@ size_t inf_client_banner (char *out, size_t outsz, const char *version);
  * Returns the length written. */
 size_t inf_client_stats (char *out, size_t outsz);
 
+/* Same figures as one compact line, for the bar above the "> " prompt:
+ * "CPU 0.2% | MEM 257/6064 Mio (4.2%) | DSK r122M/w0M | NET rx4M tx2M"
+ * (on Hurd: "CPU .. | MEM .. | IO n/d").  Returns the length written. */
+size_t inf_client_stats_line (char *out, size_t outsz);
+
 #endif /* INFERENCE_H */

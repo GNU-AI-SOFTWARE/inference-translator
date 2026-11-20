@@ -426,3 +426,81 @@ inf_client_stats (char *out, size_t outsz)
     out[outsz - 1] = '\0';
     return (size_t) (p - out);
 }
+
+/* --- one-line stats bar (above the prompt) --------------------------- */
+
+size_t
+inf_client_stats_line (char *out, size_t outsz)
+{
+    if (out == NULL || outsz == 0)
+        return 0;
+#ifdef ON_HURD
+    {
+        static unsigned long prev_total, prev_idle;
+        mach_port_t host = mach_host_self ();
+        cpu_load_info_data_t info;
+        mach_msg_type_number_t count = HOST_CPU_LOAD_INFO_COUNT;
+        double cpu = -1.0;
+        if (host_statistics (host, HOST_CPU_LOAD_INFO,
+                             (host_info_t) &info, &count) == KERN_SUCCESS)
+          {
+            unsigned long total = 0, idle = info.cpu_ticks[CPU_STATE_IDLE];
+            for (int i = 0; i < CPU_STATE_MAX; i++)
+                total += info.cpu_ticks[i];
+            if (prev_total != 0 && total > prev_total)
+                cpu = 100.0 * (double) ((total - prev_total)
+                                        - (idle - prev_idle))
+                      / (double) (total - prev_total);
+            prev_total = total;
+            prev_idle = idle;
+          }
+        unsigned long long used = 0, total = 0;
+        unsigned int ps = 0;
+        host_basic_info_data_t basic;
+        count = HOST_BASIC_INFO_COUNT;
+        if (host_page_size (host, &ps) == KERN_SUCCESS
+            && host_info (host, HOST_BASIC_INFO, (host_info_t) &basic,
+                          &count) == KERN_SUCCESS)
+          {
+            vm_statistics64_data_t vm;
+            count = HOST_VM_INFO64_COUNT;
+            total = basic.memory_size;
+            if (host_statistics64 (host, HOST_VM_INFO64,
+                                   (host_info64_t) &vm, &count) == KERN_SUCCESS)
+                used = total - (unsigned long long) vm.free_count * ps;
+            else
+                used = total;
+          }
+        char cp[32];
+        if (cpu >= 0.0)
+            snprintf (cp, sizeof cp, "%.1f%%", cpu);
+        else
+            snprintf (cp, sizeof cp, "n/d");
+        int n = snprintf (out, outsz,
+                          "CPU %s | MEM %llu/%llu Mio (%.1f%%) | IO n/d",
+                          cp, used >> 20, total >> 20,
+                          total ? 100.0 * (double) used / (double) total : 0.0);
+        return n < 0 ? 0 : (size_t) n;
+    }
+#else
+    {
+        double cpu = proc_cpu_pct ();
+        unsigned long long used, total;
+        proc_mem (&used, &total);
+        unsigned long long dr, dw, rx, tx;
+        proc_io (&dr, &dw, &rx, &tx);
+        char cp[32];
+        if (cpu >= 0.0)
+            snprintf (cp, sizeof cp, "%.1f%%", cpu);
+        else
+            snprintf (cp, sizeof cp, "n/d");
+        int n = snprintf (out, outsz,
+                          "CPU %s | MEM %llu/%llu Mio (%.1f%%) | "
+                          "DSK r%lluM/w%lluM | NET rx%lluM tx%lluM",
+                          cp, used >> 10, total >> 10,
+                          total ? 100.0 * (double) used / (double) total : 0.0,
+                          dr >> 20, dw >> 20, rx >> 20, tx >> 20);
+        return n < 0 ? 0 : (size_t) n;
+    }
+#endif
+}
