@@ -25,7 +25,8 @@ if ON_HURD
 inference_translator_SOURCES = main-hurd.c netfs-hooks.c
 inference_translator_CPPFLAGS = $(AM_CPPFLAGS) -DON_HURD
 inference_translator_LDADD = libinfcore.a -lnetfs -lfshelp -lports \
-                             -lihash -lshouldbeinlibc
+                             -lihash -liohelp -lmachuser -lpthread \
+                             -lshouldbeinlibc
 else
 inference_translator_SOURCES = main.c
 inference_translator_LDADD = libinfcore.a
