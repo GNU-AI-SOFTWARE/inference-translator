@@ -621,7 +621,16 @@ def run(src, script, opts):
     finally:
         with open(SERIAL_LOG, "wb") as logf:
             logf.write(vm.log)
-        vm.stop()
+        if opts["keep"]:
+            # Leave QEMU running: the serial TCP socket keeps
+            # listening for a new client (nc 127.0.0.1 <port>) and
+            # the 2222 host forward stays up for ssh.
+            print(f"[vm] VM left running: pid {vm.proc.pid}, "
+                  f"serial console on 127.0.0.1:{vm.port}, "
+                  f"ssh on 127.0.0.1:2222 "
+                  f"(stop with: pkill -f qemu-system-x86_64)")
+        else:
+            vm.stop()
         print("[vm] serial console saved to serial.log")
     return rc
 
