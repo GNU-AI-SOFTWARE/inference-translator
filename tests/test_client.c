@@ -146,6 +146,38 @@ main (void)
            && !inf_url_valid ("https:///path") && !inf_url_valid ("ftp://x")
            && !inf_url_valid ("example.org") && !inf_url_valid (""));
 
+    /* --- /learn: training elements (schema.sql training_data) ------ */
+
+    char sum[65];
+    inf_sha256_hex (sum, (const unsigned char *) "abc", 3);
+    check ("sha256(\"abc\") known vector",
+           strcmp (sum, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0);
+    inf_sha256_hex (sum, (const unsigned char *) "", 0);
+    check ("sha256(\"\") known vector",
+           strcmp (sum, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") == 0);
+
+    char txt[4096];
+    size_t tn = inf_html_to_text (txt, sizeof txt,
+        "<p>Hello <b>world</b> &amp; all</p><script>var x=1;</script>");
+    check ("html_to_text strips tags/scripts and decodes entities",
+           strcmp (txt, "Hello world & all") == 0);
+
+    char rec[8192];
+    inf_training_record (rec, sizeof rec, "https://example.org/a",
+                         200, "Hello \"world\"\n", sum);
+    check ("training record carries table, row, url, status, checksum",
+           strstr (rec, "\"table\":\"training_data\"") != NULL
+           && strstr (rec, "\"source_url\":\"https://example.org/a\"") != NULL
+           && strstr (rec, "\"http_status\":200") != NULL
+           && strstr (rec, "\"checksum\":\"") != NULL
+           && strstr (rec, "Hello \\\"world\\\"") != NULL);
+
+    char larg[256];
+    check ("/learn parses as a command with its URL argument",
+           inf_client_parse_command ("/learn https://example.org",
+                                     larg, sizeof larg) == INF_CMD_LEARN
+           && strcmp (larg, "https://example.org") == 0);
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }

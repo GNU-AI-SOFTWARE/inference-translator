@@ -48,6 +48,7 @@
 static struct termios g_saved_tio;
 static bool g_tio_saved;
 static const char *g_mount = INF_MOUNT_INFERENCE;
+static const char *g_db = "/db";        /* --db DIR / $INFERENCE_DB */
 
 static char g_buf[INF_PROMPT_MAX];      /* prompt being composed */
 static size_t g_blen;
@@ -73,7 +74,10 @@ static int
 write_node (const char *node, const char *data, size_t len)
 {
     char path[4096];
-    snprintf (path, sizeof path, "%s/%s", g_mount, node);
+    if (node[0] == '\0')
+        snprintf (path, sizeof path, "%s", g_mount);
+    else
+        snprintf (path, sizeof path, "%s/%s", g_mount, node);
     int fd = open (path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0)
         return -1;
@@ -98,7 +102,10 @@ static ssize_t
 read_node_m (const char *mount, const char *node, char *out, size_t outsz)
 {
     char path[4096];
-    snprintf (path, sizeof path, "%s/%s", mount, node);
+    if (node[0] == '\0')
+        snprintf (path, sizeof path, "%s", mount);
+    else
+        snprintf (path, sizeof path, "%s/%s", mount, node);
     int fd = open (path, O_RDONLY);
     if (fd < 0)
         return -1;
@@ -243,35 +250,32 @@ shell_quote (char *dst, size_t dstsz, const char *s)
     dst[n] = '\0';
 }
 
-static void
-cmd_fetch (const char *arg)
+/* fetch_url — mount httpfs on /page for URL, wait for the HEAD probe,
+ * read the body.  Returns 0 when an HTTP status was obtained (even
+ * "000": the probe failed, *out_status == 0 and *out_body == NULL),
+ * -1 when the mount/probe failed.  On success *out_body is malloc'd
+ * (NULL when there is no body); the caller frees it. */
+static int
+fetch_url (const char *url, long *out_status, char **out_body,
+           size_t *out_len)
 {
-    if (arg == NULL || *arg == '\0')
-      {
-        printf ("  usage: /fetch URL (http://... ou https://...)\n");
-        return;
-      }
-    if (!inf_url_valid (arg))
-      {
-        printf ("  URL invalide: http:// ou https:// suivi d'un hôte requis\n");
-        return;
-      }
-
+    *out_body = NULL;
+    *out_len = 0;
     char q[2048];
     char b[2048];
     char cmd[4600];
-    shell_quote (q, sizeof q, arg);
+    shell_quote (q, sizeof q, url);
     shell_quote (b, sizeof b, find_httpfs ());
     snprintf (cmd, sizeof cmd,
               "settrans -fg " FETCH_MOUNT " 2>/dev/null; "
               "sleep 1; "
               "mkdir -p " FETCH_MOUNT "; "
               "settrans -a " FETCH_MOUNT " %s %s", b, q);
-    printf ("→ mount %s %s sur " FETCH_MOUNT "\n", b, arg);
+    printf ("→ mount %s %s sur " FETCH_MOUNT "\n", b, url);
     if (system (cmd) != 0)
       {
         printf ("  échec du montage (settrans + httpfs requis, root, Hurd)\n");
-        return;
+        return -1;
       }
 
     /* Wait for the HEAD probe: /page/status appears once it is done. */
@@ -295,18 +299,63 @@ cmd_fetch (const char *arg)
         system ("settrans -p " FETCH_MOUNT " 2>&1 | head -1");
         printf ("  (translator vivant mais sonde HEAD en échec -> DNS/réseau ?\n"
                 "   essayez une IP directe: /fetch http://93.184.216.34)\n");
+        return -1;
+      }
+    *out_status = status;
+    if (status == 0)
+        return 0;                       /* transport error in headers */
+
+    char *body = malloc (FETCH_MAX_BODY + 1);
+    if (body == nullptr)
+      {
+        printf ("  ENOMEM\n");
+        return -1;
+      }
+    ssize_t total = read_node_m (FETCH_MOUNT, "content", body,
+                                 FETCH_MAX_BODY + 1);
+    if (total < 0)
+      {
+        printf ("  lecture de " FETCH_MOUNT "/content impossible\n");
+        free (body);
+        return -1;
+      }
+    *out_body = body;
+    *out_len = (size_t) total;
+    return 0;
+}
+
+static void
+print_http_status (long status)
+{
+    const char *a = "";
+    if (inf_client_color ())
+        a = (status >= 200 && status < 300) ? "\033[32m"
+            : (status == 0 ? "\033[1;31m" : "\033[33m");
+    if (*a)
+        printf ("  status HTTP: %s%ld\033[0m\n", a, status);
+    else
+        printf ("  status HTTP: %ld\n", status);
+}
+
+static void
+cmd_fetch (const char *arg)
+{
+    if (arg == NULL || *arg == '\0')
+      {
+        printf ("  usage: /fetch URL (http://... ou https://...)\n");
         return;
       }
-    {
-        const char *a = "";
-        if (inf_client_color ())
-            a = (status >= 200 && status < 300) ? "\033[32m"
-                : (status == 0 ? "\033[1;31m" : "\033[33m");
-        if (*a)
-            printf ("  status HTTP: %s%ld\033[0m\n", a, status);
-        else
-            printf ("  status HTTP: %ld\n", status);
-    }
+    if (!inf_url_valid (arg))
+      {
+        printf ("  URL invalide: http:// ou https:// suivi d'un hôte requis\n");
+        return;
+      }
+    long status;
+    char *body;
+    size_t blen;
+    if (fetch_url (arg, &status, &body, &blen) != 0)
+        return;
+    print_http_status (status);
     if (status == 0)
       {
         /* "000": the HEAD probe failed; /page/headers holds the
@@ -318,27 +367,134 @@ cmd_fetch (const char *arg)
                 en > 0 ? errbuf : "erreur inconnue\n");
         return;
       }
-
-    char *body = malloc (FETCH_MAX_BODY + 1);
-    if (body == nullptr)
-      {
-        printf ("  ENOMEM\n");
-        return;
-      }
-    ssize_t total = read_node_m (FETCH_MOUNT, "content", body,
-                                 FETCH_MAX_BODY + 1);
-    if (total < 0)
-      {
-        printf ("  lecture de " FETCH_MOUNT "/content impossible\n");
-        free (body);
-        return;
-      }
-    size_t show = total < FETCH_PREVIEW ? (size_t) total : FETCH_PREVIEW;
-    printf ("  page: %zd octets (aperçu %zu) — complète dans "
-            FETCH_MOUNT "/content\n", total, show);
+    size_t show = blen < FETCH_PREVIEW ? blen : FETCH_PREVIEW;
+    printf ("  page: %zu octets (aperçu %zu) — complète dans "
+            FETCH_MOUNT "/content\n", blen, show);
     fwrite (body, 1, show, stdout);
     printf ("\n");
     free (body);
+}
+
+/* --- /learn: store fetched pages as training elements in /db -------- */
+
+/* Write/read the root of a mount (node ""), e.g. the /db translator. */
+static int
+write_root (const char *mount, const char *data, size_t len)
+{
+    char path[4096];
+    snprintf (path, sizeof path, "%s", mount);
+    int fd = open (path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0)
+        return -1;
+    size_t off = 0;
+    while (off < len)
+      {
+        ssize_t n = write (fd, data + off, len - off);
+        if (n <= 0)
+          {
+            close (fd);
+            return -1;
+          }
+        off += (size_t) n;
+      }
+    if (close (fd) != 0)
+        return -1;
+    return 0;
+}
+
+static ssize_t
+read_root (const char *mount, char *out, size_t outsz)
+{
+    return read_node_m (mount, "", out, outsz);
+}
+
+static void
+cmd_learn (const char *arg)
+{
+    /* URLs: explicit arguments, else the urls node of the last request. */
+    char urls[8192];
+    if (arg != NULL && *arg != '\0')
+      {
+        size_t n = 0;
+        for (const char *p = arg; *p != '\0' && n + 2 < sizeof urls; p++)
+            urls[n++] = (*p == ' ') ? '\n' : *p;
+        urls[n] = '\0';
+      }
+    else
+      {
+        narrate ("read", INF_NODE_URLS);
+        if (read_node (INF_NODE_URLS, urls, sizeof urls) < 0)
+            urls[0] = '\0';
+      }
+    if (urls[0] == '\0')
+      {
+        printf ("  usage: /learn [URL ...] — ou soumettez d'abord un prompt "
+                "contenant des URL (/submit)\n");
+        return;
+      }
+
+    for (char *line = strtok (urls, "\n"); line != NULL;
+         line = strtok (NULL, "\n"))
+      {
+        while (*line == ' ' || *line == '\t')
+            line++;
+        char *e = line + strlen (line);
+        while (e > line && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '\r'))
+            *--e = '\0';
+        if (*line == '\0')
+            continue;
+        if (!inf_url_valid (line))
+          {
+            printf ("  URL refusée: %s\n", line);
+            continue;
+          }
+        long status;
+        char *body;
+        size_t blen;
+        if (fetch_url (line, &status, &body, &blen) != 0)
+            continue;
+        print_http_status (status);
+        if (status < 200 || status >= 300)
+          {
+            free (body);
+            continue;
+          }
+        char text[262144];
+        inf_html_to_text (text, sizeof text, body);
+        free (body);
+        char sum[65];
+        inf_sha256_hex (sum, (const unsigned char *) text, strlen (text));
+        char rec[300000];
+        inf_training_record (rec, sizeof rec, line, status, text, sum);
+
+        narrate ("write", g_db);
+        if (write_root (g_db, rec, strlen (rec)) != 0)
+          {
+            printf ("  /db injoignable (%s) — montez db-translator :\n"
+                    "    settrans -a /db db-translator --conninfo \"dbname=gnuai\"\n",
+                    strerror (errno));
+            return;
+          }
+        char resp[2048];
+        narrate ("read", g_db);
+        if (read_root (g_db, resp, sizeof resp) < 0)
+            printf ("  pas de réponse de %s\n", g_db);
+        else
+          {
+            resp[strcspn (resp, "\r\n")] = '\0';
+            const char *a = "";
+            if (inf_client_color ())
+                a = strstr (resp, "duplicate") != NULL ? "\033[33m"
+                  : strstr (resp, "error") != NULL ? "\033[1;31m"
+                  : "\033[32m";
+            char hl[8192];
+            inf_json_highlight (hl, sizeof hl, resp, inf_client_color ());
+            if (*a)
+                printf ("  db: %s%s\033[0m\n", a, hl);
+            else
+                printf ("  db: %s\n", hl);
+          }
+      }
 }
 
 /* /stats - real-time CPU/memory/IO display: redraw every second,
@@ -692,9 +848,10 @@ static void
 usage (FILE *out)
 {
     fprintf (out,
-             "Usage: inference [--mount DIR] [--version] [--help]\n"
+             "Usage: inference [--mount DIR] [--db DIR] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /fetch URL /status /stats /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /status /stats /help /quit.\n"
+             "Base de données: /db par défaut (--db DIR ou $INFERENCE_DB).\n"
              "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
 }
 
@@ -711,6 +868,15 @@ main (int argc, char **argv)
                 return 2;
               }
             g_mount = argv[i];
+          }
+        else if (strcmp (argv[i], "--db") == 0)
+          {
+            if (++i >= argc)
+              {
+                usage (stderr);
+                return 2;
+              }
+            g_db = argv[i];
           }
         else if (strcmp (argv[i], "--version") == 0)
           {
@@ -732,6 +898,9 @@ main (int argc, char **argv)
     const char *env = getenv ("INFERENCE_MOUNT");
     if (env != NULL && *env != '\0' && argc == 1)
         g_mount = env;
+    env = getenv ("INFERENCE_DB");
+    if (env != NULL && *env != '\0' && argc == 1)
+        g_db = env;
 
     /* SPEC.md section 6: the interactive mode refuses to start
      * without a terminal, with an explicit message. */
@@ -821,6 +990,9 @@ main (int argc, char **argv)
             break;
           case INF_CMD_EDITOR:
             cmd_editor ();
+            break;
+          case INF_CMD_LEARN:
+            cmd_learn (arg);
             break;
           case INF_CMD_UNKNOWN:
           default:

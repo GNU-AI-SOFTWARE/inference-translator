@@ -203,6 +203,7 @@ enum inf_client_cmd
     INF_CMD_STATS,
     INF_CMD_HELP,
     INF_CMD_QUIT,
+    INF_CMD_LEARN,
     INF_CMD_UNKNOWN
 };
 
@@ -263,5 +264,15 @@ size_t inf_text_highlight (char *out, size_t outsz, const char *text,
  * (the frozen INF_URL_REGEX requires a non-space run after the
  * scheme; here we additionally reject a bare "/" or "?" as host). */
 bool inf_url_valid (const char *url);
+
+/* Training element built from a fetched page (data-base-translator
+ * contract, schema.sql `training_data`): SHA-256 of the extracted
+ * text as anti-duplicate checksum, then the JSON write payload for
+ * /db.  All pure and bounded. */
+void inf_sha256_hex (char out[65], const unsigned char *data, size_t len);
+size_t inf_html_to_text (char *out, size_t outsz, const char *html);
+size_t inf_training_record (char *out, size_t outsz, const char *url,
+                            long http_status, const char *text,
+                            const char *checksum_hex);
 
 #endif /* INFERENCE_H */
