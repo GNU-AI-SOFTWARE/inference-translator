@@ -199,6 +199,7 @@ enum inf_client_cmd
     INF_CMD_TASK,
     INF_CMD_SUBMIT,
     INF_CMD_STATUS,
+    INF_CMD_HELP,
     INF_CMD_QUIT,
     INF_CMD_UNKNOWN
 };
@@ -212,6 +213,15 @@ const char *inf_client_editor (void);
  * plain text; for INF_CMD_TASK the argument is copied into arg. */
 enum inf_client_cmd inf_client_parse_command (const char *line,
                                               char *arg, size_t argsz);
+
+/* Tab completion for the REPL line editor: completes a slash command
+ * ("/st<TAB>") or the argument of "/task " against the frozen tables.
+ * Returns the number of matches; with exactly one match OUT holds the
+ * completed line (NUL-terminated).  LIST receives the match names, up
+ * to list_max entries. */
+size_t inf_client_complete (const char *line, size_t len, char *out,
+                            size_t outsz, const char **list,
+                            size_t list_max);
 
 /* Validate a task name against the frozen enum. */
 bool inf_task_from_name (const char *s, size_t len, enum inf_task *out);
