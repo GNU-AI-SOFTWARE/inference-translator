@@ -20,7 +20,9 @@
 /* cfmakeraw() is a BSD extension: _GNU_SOURCE (not just
  * _POSIX_C_SOURCE) is needed to declare it, and GCC >= 14 makes an
  * implicit declaration a hard error in C23. */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include "inference.h"
 
