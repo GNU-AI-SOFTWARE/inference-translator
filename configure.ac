@@ -56,6 +56,21 @@ AS_IF([test "x$inf_cv_ncurses" = xyes],
   [AC_MSG_NOTICE([ncurses not found: --cli prototype disabled, the core still builds])])
 AM_CONDITIONAL([HAVE_NCURSES], [test "x$inf_cv_ncurses" = xyes])
 
+# --- GNU/Hurd or not ---------------------------------------------------
+# The portable core (contract.c, fs.c, tests) is pure C23/POSIX and
+# builds everywhere; only the netfs server loop and the Hurd
+# libraries are Hurd-specific.  The host decides which face is
+# linked (same policy as data-base-translator):
+#   - gnu*/mach* : main-hurd.c + netfs-hooks.c (the /inference
+#                  translator), linked with -lnetfs and friends;
+#   - otherwise  : main.c (portable verification binary), so `make
+#                  check` stays green on any POSIX system.
+case "$host_os" in
+  gnu*|mach*) hurd_system=yes ;;
+  *)          hurd_system=no ;;
+esac
+AM_CONDITIONAL([ON_HURD], [test "x$hurd_system" = xyes])
+
 # Phase 0 : le squelette n'a aucune dépendance externe — ni trivfs,
 # ni netfs, ni éditeur.  Les bibliothèques Hurd n'arrivent qu'avec
 # la phase 1 (translator /inference) ; le mode distant de la

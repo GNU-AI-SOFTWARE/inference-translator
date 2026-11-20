@@ -14,6 +14,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 /* --- Mount points (frozen) ---------------------------------------- */
 
@@ -136,6 +137,46 @@ extern const size_t inf_actions_count;
  * is full at the bottom. */
 extern const char inf_spinner[INF_SPINNER_FRAMES][INF_SPINNER_SIZE]
                              [INF_SPINNER_SIZE + 1];
+
+/* --- The /inference translator state (phase 1) ----------------------
+ *
+ * Pure C23/POSIX: this is the engine the GNU/Hurd netfs glue
+ * (netfs-hooks.c) maps onto the frozen tree, and what the unit tests
+ * drive directly — no terminal, no Hurd library needed. */
+
+#define INF_CONTRACT_VERSION 1
+#define INF_PROMPT_MAX 8192
+
+struct inf_fs
+{
+    char prompt[INF_PROMPT_MAX];        /* last raw prompt, NUL-terminated */
+    size_t prompt_len;
+    enum inf_status status;
+    enum inf_task task;                 /* effective task (override wins) */
+    bool task_overridden;               /* /inference/task was written */
+    struct inf_request last;            /* parsed request of last prompt */
+    bool parsed;
+};
+
+void inf_fs_init (struct inf_fs *fs);
+
+/* The frozen node names of /inference (SPEC.md section 2), in order. */
+const char *const *inf_fs_nodes (void);
+size_t inf_fs_node_count (void);
+
+/* Write to a node: only "prompt" and "task" accept writes.  Returns 0
+ * on success, -1 on error (unknown node, read-only node, invalid task
+ * name). */
+int inf_fs_write (struct inf_fs *fs, const char *node,
+                  const char *data, size_t len);
+
+/* Read a node.  Returns the full content length (>= 0) and writes at
+ * most bufsz bytes, NUL-terminated when bufsz > 0; pass buf == NULL
+ * (or bufsz == 0) to query the length only.  Returns -1 for an
+ * unknown node, or for "request"/"urls" before any prompt was
+ * written. */
+ssize_t inf_fs_read (struct inf_fs *fs, const char *node,
+                     char *buf, size_t bufsz);
 
 /* --- ncurses CLI prototype (src/cli.c, only when HAVE_NCURSES) ----- */
 

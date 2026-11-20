@@ -128,11 +128,12 @@ main (int argc, char *argv[])
 #endif
             }
 
-    /* Phase 0: nothing is mounted yet.  Refuse cleanly instead of
-     * dying deep inside a library — the same exit path that
-     * settrans will report as "Translator died". */
-    fprintf (stderr, "inference-translator: phase 0 skeleton —"
-             " the /inference translator arrives with phase 1"
-             " (see PLAN.md)\n");
+    /* This portable build (non-Hurd host) has no server loop: refuse
+     * cleanly.  On GNU/Hurd the binary is built from main-hurd.c and
+     * mounted with settrans. */
+    fprintf (stderr, "inference-translator: portable build — on GNU/Hurd,"
+             " mount the translator with:\n"
+             "  settrans -a /inference inference-translator\n"
+             " (see PLAN.md and SPEC.md)\n");
     return EXIT_FAILURE;
 }

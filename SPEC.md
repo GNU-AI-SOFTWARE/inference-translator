@@ -243,3 +243,53 @@ sh tests/test_cli.sh src/inference-translator
   l'appelant, tableaux de taille fixe (`INF_URL_MAX`, `INF_URL_LEN`).
 - Erreurs réseau/SQL ≠ erreurs POSIX : un statut HTTP non-200 est une
   donnée affichée, jamais une erreur de l'interface.
+
+## 11. Phase 1 — comportement du translator `/inference` (MVP)
+
+Le translator est monté par `settrans -a /inference inference-translator`
+(sur GNU/Hurd, build `ON_HURD` : `main-hurd.c` + `netfs-hooks.c`, moteur
+pur dans `src/fs.c`). L'arborescence gelée (section 2) est statique :
+un répertoire racine et sept nœuds fixes.
+
+### Écritures
+
+| Nœud | Effet |
+|---|---|
+| `prompt` (w) | stocke le prompt brut, le parse en requête type 1 (`request`), statut → `parsed`. La tâche est re-détectée, sauf si `/inference/task` a été surchargé manuellement. |
+| `task` (w) | surcharge **collante** de la tâche (`summarize` \| `translate` \| `answer` \| `classify` \| `custom`) ; la dernière `request` est mise à jour. Nom invalide → refus. |
+
+### Lectures
+
+| Nœud | Contenu |
+|---|---|
+| `prompt` (r) | dernier prompt brut soumis |
+| `request` (r) | JSON type 1 exact de la dernière requête ; illisible (`ENODATA`) avant tout prompt |
+| `urls` (r) | URLs extraites, une par ligne, dans l'ordre ; idem avant tout prompt |
+| `task` (r) | tâche effective (surcharge ou détection) |
+| `params` (r) | `{}` en phase 1 |
+| `status` (r) | `idle` \| `composing` \| `parsed` \| `submitted` (`parsed` après un `write` sur `prompt`) |
+| `version` (r) | `{"program":"inference-translator","version":"0.1.0","contract":1}` |
+
+### Erreurs
+
+Nœud inconnu → refus ; nœud en lecture seule en écriture → refus ;
+`request`/`urls` avant tout prompt → `ENODATA`. Aucun état partiel
+n'est jamais visible. Le serveur est mono-thread (`netfs_server_loop`)
+: les RPCs sont sérialisées, l'état du moteur n'a pas besoin de
+verrou en phase 1.
+
+### Vérification
+
+```sh
+# Cœur + tests, partout (aucune dépendance Hurd) :
+gcc -std=c23 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
+    -Iinclude -o /tmp/test_fs tests/test_fs.c \
+    src/contract.c src/expr.c src/actions.c src/spinner.c src/fs.c
+/tmp/test_fs                        # 27/27 OK
+./autogen.sh && ./configure && make && make check   # + test_posix.sh sur Hurd monté
+# Sur GNU/Hurd, translator réellement monté :
+settrans -a /inference inference-translator
+echo "résume https://example.org/article" | tee /inference/prompt
+cat /inference/request              # JSON type 1 exact
+cat /inference/status               # parsed
+```

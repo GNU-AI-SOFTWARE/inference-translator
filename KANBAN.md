@@ -15,12 +15,6 @@ phase ; les critères d'acceptation de chaque phase sont dans le plan.
 
 ## À faire
 
-### Phase 1 — MVP : le translator `/inference` (mode local)
-- [ ] Translator monté via `settrans` sur `/inference`
-- [ ] `write` du prompt sur `/inference/prompt` ; extraction des URLs (expression rationnelle simple)
-- [ ] `read` de `/inference/request` (type 1), `/urls`, `/task`, `/status`
-- [ ] Détection heuristique minimale de la tâche (mots-clés), surcharge manuelle via `/inference/task`
-
 ### Phase 2 — Le client `inference` : IHM minimale
 - [ ] Bannière colorée, saisie multi-lignes (`termios`), commandes de base (`/editor`, `/task`, `/submit`, `/status`, `/quit`)
 - [ ] Intégration `$EDITOR` : composition du prompt dans nano/vim/emacs, relecture du buffer, re-soumission
@@ -48,7 +42,7 @@ phase ; les critères d'acceptation de chaque phase sont dans le plan.
 ### Phase 7 — Durcissement, tests, CI
 - [ ] Tests déterministes du translator (suites POSIX sans terminal), tests du client via pseudo-terminaux
 - [ ] Tests du mode distant : sshd de test sur boucle locale, clé refusée, révocation à chaud, coupure de session
-- [ ] CI sous QEMU GNU/Hurd, pilotée par [gnu-ai/mistral-vm-debian-hurd](https://github.com/gnu-ai/mistral-vm-debian-hurd)
+- [ ] CI sous QEMU GNU/Hurd, pilotée par [GNU-AI-SOFTWARE/mistral-vm-debian-hurd](https://github.com/GNU-AI-SOFTWARE/mistral-vm-debian-hurd)
 - [ ] Documentation (`docs/interface.md`, `docs/remote.md`, `docs/architecture.md`)
 
 ## En cours
@@ -64,3 +58,9 @@ _(rien)_
 - [x] Palette et conventions d'affichage (codes ANSI, thèmes de base, réglage `NO_COLOR`) (SPEC.md §6)
 - [x] Convention des points de montage : `/inference`, `/orchestrate` (SPEC.md §4)
 - [x] Livrable : `SPEC.md` + squelette de code compilable (cœur C23 pur + tests 36/36 + prototype CLI ncurses `--cli`)
+
+### Phase 1 — MVP : le translator `/inference` (mode local)
+- [x] Translator monté via `settrans` sur `/inference` (libnetfs, `ON_HURD` : `main-hurd.c` + `netfs-hooks.c`) — #7
+- [x] `write` du prompt sur `/inference/prompt` ; extraction des URLs (regex gelée) — #8
+- [x] `read` de `/inference/request` (type 1), `/urls`, `/task`, `/status`, `/params`, `/version` — #9
+- [x] Détection heuristique de la tâche (mots-clés), surcharge manuelle via `/inference/task` — #10
