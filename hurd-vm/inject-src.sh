@@ -7,8 +7,9 @@
 # debugfs, put the partition back.  Used to feed pre-built source
 # tarballs to guest scripts when the guest network is unusable.
 #
-#   ./inject-src.sh <source-image> <file-to-inject>
-#   e.g. ./inject-src.sh debian-hurd-amd64-20260314.img ~/inference-src.tar.gz
+#   ./inject-src.sh <file-to-inject>
+#   ./inject-src.sh <source-image> <file-to-inject>   (image arg optional)
+#   e.g. ./inject-src.sh ~/inference-src.tar.gz
 #
 # Requires: no VM running on the image, e2fsprogs, python3 (uses
 # hurd_vm.root_partition).  The CI image is modified in place; pass
@@ -16,8 +17,11 @@
 
 set -eu
 
-src=${1:-}   # only used to locate hurd_vm.py's directory; may be empty
-file=${2:?usage: inject-src.sh [source-image] <file>}
+case $# in
+    1) file=$1 ;;
+    2) file=$2 ;;   # first arg (source image) is informational only
+    *) echo "usage: inject-src.sh [source-image] <file>" >&2; exit 2 ;;
+esac
 here=$(cd "$(dirname "$0")" && pwd)
 # Same default as hurd_vm.py (CI_IMAGE), overridable the same way;
 # the CI copy is always named debian-hurd-ci.img next to hurd_vm.py:
