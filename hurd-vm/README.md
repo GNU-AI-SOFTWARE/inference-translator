@@ -39,9 +39,17 @@ compte, `GUEST-INF-OK`, `GUESTRC=0`, exit code 0 du driver, puis
 
 ## SSH dans la VM
 
-Le port hôte 2222 n'existe que tant que QEMU tourne (le driver coupe
-la VM à la fin du run).  Pour une session interactive : injecter sa
-clé publique dans `/root/.ssh/authorized_keys` de la copie CI une fois
-pour toutes via un petit script guest, puis, pendant que le driver
-tourne, depuis un second terminal de l'hôte :
+Le port hôte 2222 n'existe que tant que QEMU tourne : le driver
+connecte root lui-même sur la console série, exécute le script guest,
+puis éteint la VM — l'accès SSH « disparaît » donc à chaque fin de run
+(c'est normal, `Connection refused` = aucune VM active).  Pour une
+session interactive : injecter sa clé publique dans
+`/root/.ssh/authorized_keys` de la copie CI une fois pour toutes via
+un petit script guest, faire terminer le script guest par
+`sleep 3600`, puis, pendant que le driver tourne, depuis un second
+terminal de l'hôte :
 `ssh -i ~/.ssh/id_ed25519 -p 2222 root@127.0.0.1`.
+Autre option : lancer QEMU à la main sur `debian-hurd-ci.img` (mêmes
+flags que `hurd_vm.py`, `-serial file:serial-live.log`), la VM reste
+alive tant que tu veux.  Note : `inject-src.sh` exige qu'aucune VM ne
+tourne sur l'image (lock QEMU).

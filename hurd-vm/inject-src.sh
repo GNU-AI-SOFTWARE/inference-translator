@@ -16,13 +16,12 @@
 
 set -eu
 
-src=${1:?usage: inject-src.sh <source-image> <file>}
-file=${2:?missing file}
+src=${1:-}   # only used to locate hurd_vm.py's directory; may be empty
+file=${2:?usage: inject-src.sh [source-image] <file>}
 here=$(cd "$(dirname "$0")" && pwd)
-ci=${HURD_VM_CI_IMAGE:-}
-if [ -z "$ci" ]; then
-    ci="$here/$(basename "$src" .img)-ci.img"
-fi
+# Same default as hurd_vm.py (CI_IMAGE), overridable the same way;
+# the CI copy is always named debian-hurd-ci.img next to hurd_vm.py:
+ci=${HURD_VM_CI_IMAGE:-$here/debian-hurd-ci.img}
 [ -f "$ci" ] || { echo "no CI image: $ci (run hurd_vm.py once first)" >&2; exit 1; }
 [ -f "$file" ] || { echo "no such file: $file" >&2; exit 1; }
 

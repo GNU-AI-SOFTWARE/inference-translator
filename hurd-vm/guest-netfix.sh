@@ -17,7 +17,9 @@ set -u
 
 ls -l /dev/eth0 2>&1 || true
 
-printf 'nameserver 10.0.2.3\n' > /etc/resolv.conf
+rm -f /etc/resolv.conf
+printf 'nameserver 10.0.2.3\noptions timeout:2 attempts:2\n' > /etc/resolv.conf
+cat /etc/resolv.conf
 
 # The image sometimes ships /run/network/ifstate as a directory,
 # which makes ifup fail at boot:
@@ -36,10 +38,28 @@ settrans -fg /servers/socket/2 /hurd/pfinet \
 sleep 2
 ifconfig -a
 
+i=0
+until getent hosts deb.debian.org >/dev/null 2>&1; do
+    i=$((i+1))
+    [ "$i" -ge 10 ] && break
+    sleep 2
+done
 if getent hosts deb.debian.org >/dev/null 2>&1; then
     echo "DNS-OK"
 else
-    echo "DNS-KO"
+    # UDP may be broken through netdde/slirp; force DNS over TCP:
+    rm -f /etc/resolv.conf
+    printf 'nameserver 10.0.2.3\noptions usevc timeout:2 attempts:2\n' > /etc/resolv.conf
+    if getent hosts deb.debian.org >/dev/null 2>&1; then
+        echo "DNS-OK-TCP"
+    else
+        echo "DNS-KO"
+    fi
+fi
+if timeout 5 bash -c 'exec 3<>/dev/tcp/10.0.2.3/53' 2>/dev/null; then
+    echo "TCP-DNS-10.0.2.3-OK"
+else
+    echo "TCP-DNS-10.0.2.3-KO"
 fi
 ping -c1 -W2 10.0.2.2 2>&1 | tail -1
 if wget -q -O /dev/null http://deb.debian.org/ 2>/dev/null; then
