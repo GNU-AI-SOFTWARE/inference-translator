@@ -57,7 +57,10 @@ jobs:
 
       - name: Inject the sources into the VM CI image (offline path)
         run: |
-          cp hurd-vm/guest-inference.sh hurd-vm/inject-src.sh mistral-vm-debian-hurd/
+          # the first checkout used path: inference-translator
+          cp inference-translator/hurd-vm/guest-inference.sh \
+             inference-translator/hurd-vm/inject-src.sh \
+             mistral-vm-debian-hurd/
           cd mistral-vm-debian-hurd
           chmod +x guest-inference.sh inject-src.sh
           ./inject-src.sh "$GITHUB_WORKSPACE/inference-src.tar.gz"
