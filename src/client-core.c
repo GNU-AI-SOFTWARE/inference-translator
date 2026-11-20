@@ -76,6 +76,8 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
                 cmd = INF_CMD_TASK;
             else if (strcmp (inf_actions[i].command, "/submit") == 0)
                 cmd = INF_CMD_SUBMIT;
+            else if (strcmp (inf_actions[i].command, "/fetch") == 0)
+                cmd = INF_CMD_FETCH;
             else if (strcmp (inf_actions[i].command, "/status") == 0)
                 cmd = INF_CMD_STATUS;
             else if (strcmp (inf_actions[i].command, "/help") == 0)
@@ -83,7 +85,8 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
             else
                 cmd = INF_CMD_QUIT;
 
-            if (cmd == INF_CMD_TASK && arg != NULL && argsz > 0)
+            if ((cmd == INF_CMD_TASK || cmd == INF_CMD_FETCH)
+                && arg != NULL && argsz > 0)
               {
                 /* No space in the line ("/task" alone): sp is NULL, the
                    argument is empty - never evaluate sp + 1. */

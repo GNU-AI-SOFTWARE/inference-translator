@@ -16,6 +16,7 @@ const struct inf_action inf_actions[] =
     { "/editor", "composer le prompt dans $VISUAL/$EDITOR" },
     { "/task",   "forcer le type de tâche (summarize, translate, ...)" },
     { "/submit", "analyser le prompt et soumettre la requête" },
+    { "/fetch",  "télécharger une page HTML via httpfs (montée sur /page)" },
     { "/status", "afficher l'état de l'interface" },
     { "/help",   "afficher cette aide" },
     { "/quit",   "quitter" },

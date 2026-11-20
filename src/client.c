@@ -92,13 +92,12 @@ write_node (const char *node, const char *data, size_t len)
     return 0;
 }
 
-/* Returns the content length, or -1 when unreadable (absent node,
- * ENODATA before any prompt...). */
+/* Same, on an explicit mount point (used for /page by /fetch). */
 static ssize_t
-read_node (const char *node, char *out, size_t outsz)
+read_node_m (const char *mount, const char *node, char *out, size_t outsz)
 {
     char path[4096];
-    snprintf (path, sizeof path, "%s/%s", g_mount, node);
+    snprintf (path, sizeof path, "%s/%s", mount, node);
     int fd = open (path, O_RDONLY);
     if (fd < 0)
         return -1;
@@ -130,6 +129,14 @@ read_node (const char *node, char *out, size_t outsz)
     return total;
 }
 
+/* Returns the content length, or -1 when unreadable (absent node,
+ * ENODATA before any prompt...). */
+static ssize_t
+read_node (const char *node, char *out, size_t outsz)
+{
+    return read_node_m (g_mount, node, out, outsz);
+}
+
 /* --- narration ------------------------------------------------------ */
 
 static void
@@ -154,6 +161,107 @@ cmd_status (void)
         printf ("  status illisible (translator non monté ?)\n");
     else
         printf ("  status: %s\n", val);
+}
+
+/* --- /fetch: an HTML page through httpfs ----------------------------- */
+
+#define FETCH_MOUNT     "/page"
+#define FETCH_MAX_BODY  (256 * 1024)
+#define FETCH_PREVIEW   4000
+
+/* shell_quote — copy S into DST as a single-quoted /bin/sh word. */
+static void
+shell_quote (char *dst, size_t dstsz, const char *s)
+{
+    size_t n = 0;
+    if (dstsz == 0)
+        return;
+    dst[n++] = '\'';
+    for (const char *p = s; *p != '\0' && n + 4 < dstsz; p++)
+      {
+        if (*p == '\'')
+          {
+            dst[n++] = '\\';
+            dst[n++] = '\'';
+            dst[n++] = '\'';
+          }
+        else
+            dst[n++] = *p;
+      }
+    dst[n++] = '\'';
+    dst[n] = '\0';
+}
+
+static void
+cmd_fetch (const char *arg)
+{
+    if (arg == NULL || *arg == '\0')
+      {
+        printf ("  usage: /fetch URL (http://... ou https://...)\n");
+        return;
+      }
+    if (strncmp (arg, "http://", 7) != 0
+        && strncmp (arg, "https://", 8) != 0)
+      {
+        printf ("  URL invalide: http:// ou https:// requis\n");
+        return;
+      }
+
+    char q[2048];
+    char cmd[2600];
+    shell_quote (q, sizeof q, arg);
+    snprintf (cmd, sizeof cmd,
+              "settrans -g " FETCH_MOUNT " 2>/dev/null; "
+              "mkdir -p " FETCH_MOUNT "; "
+              "settrans -a " FETCH_MOUNT " httpfs %s", q);
+    printf ("→ mount httpfs %s sur " FETCH_MOUNT "\n", arg);
+    if (system (cmd) != 0)
+      {
+        printf ("  échec du montage (settrans + httpfs requis, root, Hurd)\n");
+        return;
+      }
+
+    /* Wait for the HEAD probe: /page/status appears once it is done. */
+    char val[64];
+    long status = -1;
+    for (int i = 0; i < 75; i++)            /* ~15 s */
+      {
+        ssize_t n = read_node_m (FETCH_MOUNT, "status", val, sizeof val);
+        if (n > 0)
+          {
+            status = strtol (val, nullptr, 10);
+            break;
+          }
+        usleep (200 * 1000);
+      }
+    if (status < 0)
+      {
+        printf ("  pas de réponse de " FETCH_MOUNT "/status "
+                "(translator mort ?)\n");
+        return;
+      }
+    printf ("  status HTTP: %ld\n", status);
+
+    char *body = malloc (FETCH_MAX_BODY + 1);
+    if (body == nullptr)
+      {
+        printf ("  ENOMEM\n");
+        return;
+      }
+    ssize_t total = read_node_m (FETCH_MOUNT, "content", body,
+                                 FETCH_MAX_BODY + 1);
+    if (total < 0)
+      {
+        printf ("  lecture de " FETCH_MOUNT "/content impossible\n");
+        free (body);
+        return;
+      }
+    size_t show = total < FETCH_PREVIEW ? (size_t) total : FETCH_PREVIEW;
+    printf ("  page: %zd octets (aperçu %zu) — complète dans "
+            FETCH_MOUNT "/content\n", total, show);
+    fwrite (body, 1, show, stdout);
+    printf ("\n");
+    free (body);
 }
 
 static void
@@ -413,7 +521,7 @@ usage (FILE *out)
     fprintf (out,
              "Usage: inference [--mount DIR] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /status /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /status /help /quit.\n"
              "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
 }
 
@@ -522,6 +630,9 @@ main (int argc, char **argv)
             return 0;
           case INF_CMD_STATUS:
             cmd_status ();
+            break;
+          case INF_CMD_FETCH:
+            cmd_fetch (arg);
             break;
           case INF_CMD_HELP:
             cmd_help ();
