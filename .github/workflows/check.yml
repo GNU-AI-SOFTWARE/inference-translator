@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
+#
+# Fast portable checks on a Linux runner: autotools build + make
+# check, including the phase 2 client tests (tests/test_client.sh
+# drives `src/inference` through a pty with script(1), which the
+# minimal Hurd image lacks).  The real-Hurd run is the hurd-vm
+# workflow.
+
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool
+
+      - name: Build and test
+        run: |
+          ./autogen.sh
+          ./configure
+          make
+          make check
