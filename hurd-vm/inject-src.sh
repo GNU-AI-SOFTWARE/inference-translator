@@ -40,7 +40,13 @@ PYEOF
 part=$(mktemp /tmp/hurd-rootpart.XXXXXX)
 trap 'rm -f "$part"' EXIT
 dd if="$ci" of="$part" bs=512 skip="$lba" count="$sectors" status=none
-"$e2fsck" -fy "$part" >/dev/null
+# e2fsck exit codes: 0 = clean, 1-3 = errors corrected, >=4 = unfixable.
+# Under set -e a corrected filesystem (rc=1) must NOT abort the script:
+set +e
+"$e2fsck" -fy "$part" >/dev/null 2>&1
+frc=$?
+set -e
+[ "$frc" -lt 4 ] || { echo "e2fsck failed (rc=$frc) on the extracted partition" >&2; exit 1; }
 "$debugfs" -w -R "write $(readlink -f "$file") /root/$(basename "$file")" "$part"
 dd if="$part" of="$ci" bs=512 seek="$lba" conv=notrunc status=none
 echo "injected $file into $ci as /root/$(basename "$file")"
