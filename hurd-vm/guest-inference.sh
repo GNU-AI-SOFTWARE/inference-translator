@@ -49,20 +49,21 @@ mkdir -p /inference
 settrans -a /inference ./src/inference-translator
 
 make check || { cat tests/test-suite.log 2>/dev/null || true; exit 1; }
-# expected on Hurd: test_contract 36/36, test_fs 28/28, test_cli.sh OK,
-#           test_posix.sh OK (mounted)
+# expected on Hurd: test_contract 36/36, test_fs 29/29, test_cli.sh OK,
+#           test_posix.sh OK (mounted).  Note: test_posix.sh ends with
+#           the task override set to "translate", which is sticky by
+#           contract, so the manual demo below shows task=translate.
 
+# Manual demo of the POSIX interface (make check already ran
+# test_posix.sh against the mounted translator):
 echo "résume https://example.org/article" | tee /inference/prompt
-echo "--- request ---"; cat /inference/request
-# expected: {"prompt":"résume https://example.org/article","task":"summarize","urls":["https://example.org/article"],"params":{}}
-echo "--- status ---"; cat /inference/status     # expected: parsed
-echo "--- urls ---";   cat /inference/urls       # expected: https://example.org/article
-echo "--- task ---";   cat /inference/task       # expected: summarize
+echo "--- request ---"; cat /inference/request; echo
+echo "--- status ---"; cat /inference/status; echo
+echo "--- urls ---";   cat /inference/urls; echo
 
 echo translate | tee /inference/task
-echo "--- request (override) ---"; cat /inference/request   # must contain "task":"translate"
+echo "--- request (override) ---"; cat /inference/request; echo   # must contain "task":"translate"
 
-sh tests/test_posix.sh                  # mounted now: must pass (no SKIP)
 ./src/inference-translator --version    # 0.1.0
 
 settrans -g /inference
