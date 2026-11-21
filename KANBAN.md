@@ -28,8 +28,9 @@ phase ; les critères d'acceptation de chaque phase sont dans le plan.
 - [ ] Client : `inference --remote utilisateur@hôte` ; sans l'option, comportement local inchangé
 
 ### Phase 6 — Historique et ergonomie de session
-- [ ] Historique des prompts de la session (navigation, ré-édition dans `$EDITOR`, re-soumission)
-- [ ] Commandes `history` et `replay` cohérentes avec `/orchestrate`, sans dupliquer la persistance (PostgreSQL reste la source)
+- [x] Historique des lignes de la session persistant dans `.history` (`$HOME/.history` par défaut, `--history FILE` / `$INFERENCE_HISTORY`), rappel par flèche haut/bas comme un terminal TTY, commande `/history` (#56)
+- [ ] Ré-édition d'une entrée rappelée dans `$EDITOR` et re-soumission (`/replay N`)
+- [ ] Commande `replay` cohérente avec `/orchestrate`, sans dupliquer la persistance (PostgreSQL reste la source)
 
 ### Phase 7 — Durcissement, tests, CI
 - [ ] Tests déterministes du translator (suites POSIX sans terminal), tests du client via pseudo-terminaux

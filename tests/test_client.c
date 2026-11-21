@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static int g_checks;
 static int g_failed;
@@ -271,6 +272,47 @@ main (void)
     check ("orch_role_ok: {\"empty\": true} is a valid response",
            inf_orch_role_ok ("result", "{\"empty\": true}")
            && inf_orch_role_ok ("status", "{\"empty\": true}"));
+
+    /* --- Phase 6: session history (.history, up/down arrows) -------- */
+
+    larg[0] = 'X';
+    check ("/history parses as a command without argument",
+           inf_client_parse_command ("/history", larg, sizeof larg)
+               == INF_CMD_HISTORY);
+
+    char hpath[] = "/tmp/inf-hist-test-XXXXXX";
+    int hfd = mkstemp (hpath);
+    check ("history: mkstemp works", hfd >= 0);
+    if (hfd >= 0)
+      {
+        const char *seed = "/submit\n\n/status\n/status\n/fetch https://a.b\n";
+        (void) write (hfd, seed, strlen (seed));
+        close (hfd);
+        struct inf_history h;
+        inf_history_init (&h);
+        inf_history_load (&h, hpath);
+        check ("history load skips empty lines and consecutive duplicates",
+               h.count == 3
+               && strcmp (inf_history_get (&h, 0), "/submit") == 0
+               && strcmp (inf_history_get (&h, 1), "/status") == 0
+               && strcmp (inf_history_get (&h, 2), "/fetch https://a.b") == 0);
+        check ("history_get out of range is NULL",
+               inf_history_get (&h, 3) == NULL);
+        check ("add appends a new line", inf_history_add (&h, "/watch") == 4);
+        check ("add skips an immediate duplicate",
+               inf_history_add (&h, "/watch") == 4);
+        check ("add skips an empty line", inf_history_add (&h, "  \n") == 4);
+        check ("append persists one line",
+               inf_history_append (hpath, "/quit") == 0);
+        inf_history_free (&h);
+        inf_history_init (&h);
+        inf_history_load (&h, hpath);
+        check ("reload sees the appended line (in-memory-only /watch is not in the file)",
+               h.count == 4
+               && strcmp (inf_history_get (&h, 3), "/quit") == 0);
+        inf_history_free (&h);
+        unlink (hpath);
+      }
 
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
