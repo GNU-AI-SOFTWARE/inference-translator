@@ -39,6 +39,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifndef VERSION
@@ -54,6 +55,7 @@ static struct inf_history g_hist;               /* --history FILE */
 static char g_hist_path[4096] = "";
 static char g_hist_saved[INF_PROMPT_MAX];       /* in-progress line while browsing */
 static size_t g_hpos;                           /* == g_hist.count: editing a new line */
+static time_t g_start;                          /* client session start (uptime) */
 
 static char g_buf[INF_PROMPT_MAX];      /* prompt being composed */
 static size_t g_blen;
@@ -362,6 +364,26 @@ cmd_history (void)
             g_hist.count > 1 ? "s" : "", g_hist_path);
     for (size_t i = 0; i < g_hist.count; i++)
         printf ("  %4zu  %s\n", i + 1, inf_history_get (&g_hist, i));
+}
+
+/* /uptime — client version, translator version (read from
+ * <mount>/version) and the session uptime. */
+static void
+cmd_uptime (void)
+{
+    char up[64];
+    inf_format_uptime (up, sizeof up,
+                       (long) difftime (time (NULL), g_start));
+    printf ("  client: inference (GNU AI) %s, uptime: %s\n", VERSION, up);
+    char ver[512];
+    narrate ("read", INF_NODE_VERSION);
+    if (read_node (INF_NODE_VERSION, ver, sizeof ver) < 0)
+        printf ("  translator: version illisible (non monté ?)\n");
+    else
+      {
+        ver[strcspn (ver, "\r\n")] = '\0';
+        printf ("  translator: %s\n", ver);
+      }
 }
 
 /* --- /fetch: an HTML page through httpfs ----------------------------- */
@@ -1167,7 +1189,7 @@ usage (FILE *out)
     fprintf (out,
              "Usage: inference [--mount DIR] [--db DIR] [--orchestrate DIR] [--history FILE] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /watch /history /status /stats /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /watch /history /uptime /status /stats /help /quit.\n"
              "Base de données: /db par défaut (--db DIR ou $INFERENCE_DB).\n"
              "Orchestrateur: /orchestrate par défaut (--orchestrate DIR ou $INFERENCE_ORCH).\n"             "Historique: $HOME/.history par défaut (--history FILE ou $INFERENCE_HISTORY),\n    flèche haut/bas pour rappeler une ligne.\n"
              "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
@@ -1274,6 +1296,7 @@ main (int argc, char **argv)
     signal (SIGTERM, on_signal);
     signal (SIGHUP, on_signal);
 
+    g_start = time (NULL);
     inf_history_init (&g_hist);
     inf_history_load (&g_hist, g_hist_path);
     g_hpos = g_hist.count;
@@ -1368,6 +1391,9 @@ main (int argc, char **argv)
             break;
           case INF_CMD_HISTORY:
             cmd_history ();
+            break;
+          case INF_CMD_UPTIME:
+            cmd_uptime ();
             break;
           case INF_CMD_UNKNOWN:
           default:

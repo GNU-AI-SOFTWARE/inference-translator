@@ -97,6 +97,8 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
                 cmd = INF_CMD_WATCH;
             else if (strcmp (inf_actions[i].command, "/history") == 0)
                 cmd = INF_CMD_HISTORY;
+            else if (strcmp (inf_actions[i].command, "/uptime") == 0)
+                cmd = INF_CMD_UPTIME;
             else
                 cmd = INF_CMD_QUIT;
 
@@ -1310,4 +1312,31 @@ inf_history_append (const char *path, const char *line)
     if (close (fd) != 0)
         rc = -1;
     return rc;
+}
+
+size_t
+inf_format_uptime (char *out, size_t outsz, long seconds)
+{
+    if (out == NULL || outsz == 0)
+        return 0;
+    if (seconds < 0)
+        seconds = 0;
+    long d = seconds / 86400;
+    long h = (seconds % 86400) / 3600;
+    long m = (seconds % 3600) / 60;
+    long sec = seconds % 60;
+    int n;
+    if (d > 0)
+        n = snprintf (out, outsz, "%ldj %02ldh %02ldm %02lds", d, h, m, sec);
+    else if (h > 0)
+        n = snprintf (out, outsz, "%ldh %02ldm %02lds", h, m, sec);
+    else if (m > 0)
+        n = snprintf (out, outsz, "%ldm %02lds", m, sec);
+    else
+        n = snprintf (out, outsz, "%lds", sec);
+    if (n < 0)
+        n = 0;
+    if ((size_t) n >= outsz)
+        n = (int) outsz - 1;
+    return (size_t) n;
 }
