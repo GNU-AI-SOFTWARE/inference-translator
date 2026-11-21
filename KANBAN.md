@@ -16,14 +16,11 @@ phase ; les critères d'acceptation de chaque phase sont dans le plan.
 ## À faire
 
 ### Phase 3 — Interface riche : couleurs, animations, streaming
-- [ ] Coloration syntaxique du prompt (URLs, markdown léger) et des sorties JSON (clés, chaînes, nombres, états)
-- [ ] Animations : spinner pendant l'attente du `result`, effet machine à écrire, réaffichage propre
-- [ ] Lecture incrémentale de `status` (type 2) puis du `result` (type 3) en streaming
-- [ ] Mode cluster : le trio JSON transite par un canal SSH minimal vers l'orchestrateur d'un cluster Hurd (2 à 5 nœuds)
+- [ ] Mode cluster : le trio JSON transite par un canal SSH minimal vers l'orchestrateur d'un cluster Hurd (2 à 5 nœuds) — reporté avec la phase 5 (mode distant)
 
 ### Phase 4 — Intégration de bout en bout avec l'orchestrateur
-- [ ] Scénario complet : prompt (éditeur) → `request` → orchestrateur (httpfs, N neuron-translator) → `result` affiché en streaming
-- [ ] Affichage du `status` (instances, états, scores) comme données de progression
+- [ ] Scénario complet : prompt (éditeur) → `request` → orchestrateur (httpfs, N neuron-translator) → `result` affiché en streaming — bloqué par la phase 3 d'`orchestrator-translator` (lecture de `/inference/request`) ; côté client, `/submit` + `/watch` prêts
+- [x] Affichage du `status` (instances, états) comme données de progression et du `result` en streaming : commande `/watch` (#54)
 
 ### Phase 5 — Mode distant : SSH, datacenter et cluster local
 - [ ] Processus `inference-serveur` lancé par session SSH (trames sur stdio, aucun port d'écoute dédié)
@@ -45,6 +42,11 @@ phase ; les critères d'acceptation de chaque phase sont dans le plan.
 _(rien)_
 
 ## Fait
+
+### Phase 3 — Interface riche : couleurs, animations, streaming
+- [x] Coloration syntaxique du prompt et des sorties JSON (#49)
+- [x] Animations : spinner pendant `/submit`, réaffichage propre ; retour arrière UTF-8 corrigé (#49)
+- [x] Commandes d'entraînement : `/learn` (#50), `/read-code` (#52), `/learn-code` (#53) — persistance `/db` (`training_data`, checksum SHA-256)
 
 ### Phase 2 — Le client `inference` : IHM minimale
 - [x] Bannière colorée, saisie multi-lignes (`termios`), commandes de base (`/editor`, `/task`, `/submit`, `/status`, `/quit`) (#11)

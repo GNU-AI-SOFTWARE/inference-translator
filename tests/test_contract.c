@@ -234,11 +234,11 @@ main (void)
 
     /* --- Frozen tables ------------------------------------------- */
 
-    bool actions_ok = inf_actions_count == 11;
+    bool actions_ok = inf_actions_count == 12;
     for (size_t i = 0; i < inf_actions_count; i++)
         if (inf_actions[i].command[0] != '/')
             actions_ok = false;
-    check ("frozen tables: 11 slash commands, expressions, task rules",
+    check ("frozen tables: 12 slash commands, expressions, task rules",
            actions_ok
            && inf_exprs_count >= 1
            && strcmp (inf_exprs[0].pattern, INF_URL_REGEX) == 0

@@ -49,6 +49,7 @@ static struct termios g_saved_tio;
 static bool g_tio_saved;
 static const char *g_mount = INF_MOUNT_INFERENCE;
 static const char *g_db = "/db";        /* --db DIR / $INFERENCE_DB */
+static const char *g_orch = INF_MOUNT_ORCHESTRATE; /* --orchestrate DIR */
 
 static char g_buf[INF_PROMPT_MAX];      /* prompt being composed */
 static size_t g_blen;
@@ -71,13 +72,14 @@ on_signal (int sig)
 /* --- POSIX node access through the mount point --------------------- */
 
 static int
-write_node (const char *node, const char *data, size_t len)
+write_node_m (const char *mount, const char *node, const char *data,
+              size_t len)
 {
     char path[4096];
     if (node[0] == '\0')
-        snprintf (path, sizeof path, "%s", g_mount);
+        snprintf (path, sizeof path, "%s", mount);
     else
-        snprintf (path, sizeof path, "%s/%s", g_mount, node);
+        snprintf (path, sizeof path, "%s/%s", mount, node);
     int fd = open (path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0)
         return -1;
@@ -95,6 +97,13 @@ write_node (const char *node, const char *data, size_t len)
     if (close (fd) != 0)
         return -1;
     return 0;
+}
+
+/* write_node: same, on the /inference mount point. */
+static int
+write_node (const char *node, const char *data, size_t len)
+{
+    return write_node_m (g_mount, node, data, len);
 }
 
 /* Same, on an explicit mount point (used for /page by /fetch). */
@@ -201,6 +210,135 @@ static void
 cmd_status (void)
 {
     print_status_node ();
+}
+
+/* narrate_orch — narration naming the /orchestrate mount point. */
+static void
+narrate_orch (const char *verb, const char *node)
+{
+    char line[4200];
+    inf_client_narrate (line, sizeof line, verb, g_orch, node);
+    if (inf_client_color ())
+        printf ("\033[2m→ %s\033[0m\n", line);
+    else
+        printf ("→ %s\n", line);
+}
+
+/* orch_read — read one role of /orchestrate: a plain sub-node in
+ * phase 2+ (netfs /orchestrate/status, /orchestrate/result), else the
+ * phase 1 trivfs command protocol (write {"command":"status"} on the
+ * mount root, read the root back).  The interface never writes a run
+ * descriptor there (frozen contract). */
+static ssize_t
+orch_read (const char *node, char *out, size_t outsz)
+{
+    ssize_t n = read_node_m (g_orch, node, out, outsz);
+    if (n >= 0)
+        return n;
+    char cmd[64];
+    snprintf (cmd, sizeof cmd, "{\"command\":\"%s\"}", node);
+    if (write_node_m (g_orch, "", cmd, strlen (cmd)) != 0)
+        return -1;
+    return read_node_m (g_orch, "", out, outsz);
+}
+
+/* /watch — phase 4: follow a run on the orchestrator: poll the type 2
+ * status until a terminal state, then show the type 3 result
+ * (highlighted JSON, output printed typewriter-style). */
+static void
+cmd_watch (void)
+{
+    char status[INF_JSON_MAX];
+    narrate_orch ("read", "status");
+    if (orch_read ("status", status, sizeof status) < 0)
+      {
+        printf ("  orchestrateur injoignable: %s non monté ?\n"
+                "  settrans -a %s orchestrator-translator ...\n",
+                g_orch, g_orch);
+        return;
+      }
+
+    static const char frames[] = "|/-\\";
+    char state[64] = "";
+    bool terminal = false;
+    printf ("  surveillance ");
+    fflush (stdout);
+    for (int i = 0; i < 100 && !terminal; i++)
+      {
+        if (orch_read ("status", status, sizeof status) < 0)
+            break;
+        status[strcspn (status, "\r\n")] = '\0';
+        if (inf_json_str_field (status, "state", state, sizeof state) != 0)
+            break;
+        terminal = strcmp (state, "done") == 0 || strcmp (state, "failed") == 0
+                   || strcmp (state, "idle") == 0;
+        if (!terminal)
+          {
+            printf ("\r  surveillance %c  state=%s ", frames[i % 4], state);
+            fflush (stdout);
+            usleep (200 * 1000);
+          }
+      }
+    printf ("\r                       \r");
+    fflush (stdout);
+
+    char hl[INF_JSON_MAX * 4];
+    inf_json_highlight (hl, sizeof hl, status, inf_client_color ());
+    printf ("  status: %s\n", hl);
+    double run_id = 0;
+    (void) inf_json_num_field (status, "run_id", &run_id);
+    const char *a = state_ansi (state);
+    if (*a)
+        printf ("  run #%.0f, état: %s%s\033[0m\n", run_id, a, state);
+    else
+        printf ("  run #%.0f, état: %s\n", run_id, state);
+    if (strcmp (state, "idle") == 0)
+      {
+        printf ("  aucun run en cours: /submit d'abord, ou lancez un\n"
+                "  descripteur sur %s (l'orchestrateur lira /inference/request)\n",
+                g_orch);
+        return;
+      }
+
+    char result[INF_JSON_MAX];
+    narrate_orch ("read", "result");
+    if (orch_read ("result", result, sizeof result) < 0)
+      {
+        printf ("  result illisible\n");
+        return;
+      }
+    result[strcspn (result, "\r\n")] = '\0';
+    if (strstr (result, "\"empty\"") != NULL)
+      {
+        printf ("  aucun résultat disponible ({\"empty\": true})\n");
+        return;
+      }
+    inf_json_highlight (hl, sizeof hl, result, inf_client_color ());
+    printf ("  result: %s\n", hl);
+
+    char output[INF_JSON_MAX];
+    if (inf_json_str_field (result, "output", output, sizeof output) == 0)
+      {
+        printf ("  output: ");
+        fflush (stdout);
+        size_t n = strlen (output);
+        if (n > 4000)
+            n = 4000;
+        for (size_t i = 0; i < n; i++)
+          {
+            putchar (output[i]);
+            fflush (stdout);
+            usleep (12 * 1000);
+          }
+        printf ("\n");
+      }
+    double conf = 0.0;
+    if (inf_json_num_field (result, "confidence", &conf) == 0)
+      {
+        const char *c = !inf_client_color () ? ""
+            : conf >= 0.8 ? "\033[32m" : conf >= 0.5 ? "\033[33m" : "\033[1;31m";
+        printf ("  confiance: %s%.3f\033[0m\n", c, conf);
+      }
 }
 
 /* --- /fetch: an HTML page through httpfs ----------------------------- */
@@ -972,10 +1110,11 @@ static void
 usage (FILE *out)
 {
     fprintf (out,
-             "Usage: inference [--mount DIR] [--db DIR] [--version] [--help]\n"
+             "Usage: inference [--mount DIR] [--db DIR] [--orchestrate DIR] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /status /stats /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /watch /status /stats /help /quit.\n"
              "Base de données: /db par défaut (--db DIR ou $INFERENCE_DB).\n"
+             "Orchestrateur: /orchestrate par défaut (--orchestrate DIR ou $INFERENCE_ORCH).\n"
              "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
 }
 
@@ -989,6 +1128,9 @@ main (int argc, char **argv)
     env0 = getenv ("INFERENCE_DB");
     if (env0 != NULL && *env0 != '\0')
         g_db = env0;
+    env0 = getenv ("INFERENCE_ORCH");
+    if (env0 != NULL && *env0 != '\0')
+        g_orch = env0;
 
     for (int i = 1; i < argc; i++)
       {
@@ -1009,6 +1151,15 @@ main (int argc, char **argv)
                 return 2;
               }
             g_db = argv[i];
+          }
+        else if (strcmp (argv[i], "--orchestrate") == 0)
+          {
+            if (++i >= argc)
+              {
+                usage (stderr);
+                return 2;
+              }
+            g_orch = argv[i];
           }
         else if (strcmp (argv[i], "--version") == 0)
           {
@@ -1125,6 +1276,9 @@ main (int argc, char **argv)
             break;
           case INF_CMD_LEARN_CODE:
             cmd_learn_code (arg);
+            break;
+          case INF_CMD_WATCH:
+            cmd_watch ();
             break;
           case INF_CMD_UNKNOWN:
           default:
