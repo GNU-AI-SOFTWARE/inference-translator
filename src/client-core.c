@@ -90,11 +90,14 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
                 cmd = INF_CMD_LEARN;
             else if (strcmp (inf_actions[i].command, "/read-code") == 0)
                 cmd = INF_CMD_READ_CODE;
+            else if (strcmp (inf_actions[i].command, "/learn-code") == 0)
+                cmd = INF_CMD_LEARN_CODE;
             else
                 cmd = INF_CMD_QUIT;
 
             if ((cmd == INF_CMD_TASK || cmd == INF_CMD_FETCH
-                 || cmd == INF_CMD_LEARN || cmd == INF_CMD_READ_CODE)
+                 || cmd == INF_CMD_LEARN || cmd == INF_CMD_READ_CODE
+                 || cmd == INF_CMD_LEARN_CODE)
                 && arg != NULL && argsz > 0)
               {
                 /* No space in the line ("/task" alone): sp is NULL, the
@@ -379,6 +382,19 @@ inf_training_record (char *out, size_t outsz, const char *url,
         "\"http_status\":%ld,\"content\":\"%s\",\"checksum\":\"%s\"}}",
         eu, http_status, et, checksum_hex);
     return n < 0 ? 0 : (size_t) n;
+}
+
+size_t
+inf_url_trim (char *url)
+{
+    if (url == NULL)
+        return 0;
+    size_t l = strlen (url);
+    while (l > 0 && (url[l - 1] == ' ' || url[l - 1] == '\t'
+                     || url[l - 1] == '\r' || url[l - 1] == '\n'
+                     || strchr (",;:.!?)]}'\"", url[l - 1]) != NULL))
+        url[--l] = '\0';
+    return l;
 }
 
 /* --- /read-code: language detection + code highlighting ------------- */

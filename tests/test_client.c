@@ -205,6 +205,23 @@ main (void)
                                      larg, sizeof larg) == INF_CMD_READ_CODE
            && strcmp (larg, "https://x.org/a.c") == 0);
 
+    /* --- URL trimming (trailing punctuation from prompt lines) ------ */
+
+    char ub[256];
+    snprintf (ub, sizeof ub, "https://deb.debian.org,");
+    inf_url_trim (ub);
+    check ("trailing comma is trimmed from URLs",
+           strcmp (ub, "https://deb.debian.org") == 0);
+    snprintf (ub, sizeof ub, "https://x.org/a.py. \t");
+    inf_url_trim (ub);
+    check ("trailing dot/space trimmed, path kept",
+           strcmp (ub, "https://x.org/a.py") == 0);
+
+    check ("/learn-code parses as a command with its URL argument",
+           inf_client_parse_command ("/learn-code https://x.org/a.py",
+                                     larg, sizeof larg) == INF_CMD_LEARN_CODE
+           && strcmp (larg, "https://x.org/a.py") == 0);
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }
