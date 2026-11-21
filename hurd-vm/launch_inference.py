@@ -205,10 +205,13 @@ def main():
     # Stale instance nodes from a previous orchestrator run.
     for n in range(1, 9):
         drop(f"/llm{n}", opts.dry_run)
-    mount("/orchestrate", prep_node,
-          [orch_bin, "--storage", "db:/db" if use_db else "mem",
-           "--instances", "node:/llm", "--neuron", neuron_bin],
-          opts.dry_run, settle=2)
+    orch_cmd = [orch_bin, "--storage", "db:/db" if use_db else "mem",
+                "--instances", "node:/llm", "--neuron", neuron_bin]
+    if httpfs_bin is not None:
+        # Phase 3 of the orchestrator ({"command":"infer"}): it mounts
+        # httpfs itself per URL, on /tmp/orc-fetch/<id>.
+        orch_cmd += ["--httpfs", httpfs_bin, "--fetch", "node:/tmp/orc-fetch"]
+    mount("/orchestrate", prep_node, orch_cmd, opts.dry_run, settle=2)
     mount("/inference", prep_dir, [inf_bin], opts.dry_run, settle=1)
     if httpfs_bin is not None:
         mount("/web", prep_dir, [httpfs_bin, opts.url], opts.dry_run)
