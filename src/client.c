@@ -340,11 +340,15 @@ print_http_status (long status)
 static void
 cmd_fetch (const char *arg)
 {
+    char urlbuf[2048];
     if (arg == NULL || *arg == '\0')
       {
         printf ("  usage: /fetch URL (http://... ou https://...)\n");
         return;
       }
+    snprintf (urlbuf, sizeof urlbuf, "%s", arg);
+    inf_url_trim (urlbuf);
+    arg = urlbuf;
     if (!inf_url_valid (arg))
       {
         printf ("  URL invalide: http:// ou https:// suivi d'un hôte requis\n");
@@ -443,6 +447,7 @@ cmd_learn (const char *arg)
             *--e = '\0';
         if (*line == '\0')
             continue;
+        inf_url_trim (line);
         if (!inf_url_valid (line))
           {
             printf ("  URL refusée: %s\n", line);
@@ -709,11 +714,15 @@ cmd_editor (void)
 static void
 cmd_read_code (const char *arg)
 {
+    char urlbuf[2048];
     if (arg == NULL || *arg == '\0')
       {
         printf ("  usage: /read-code URL (http://... ou https://...)\n");
         return;
       }
+    snprintf (urlbuf, sizeof urlbuf, "%s", arg);
+    inf_url_trim (urlbuf);
+    arg = urlbuf;
     if (!inf_url_valid (arg))
       {
         printf ("  URL invalide: http:// ou https:// suivi d'un hôte requis\n");

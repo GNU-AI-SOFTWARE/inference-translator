@@ -381,6 +381,19 @@ inf_training_record (char *out, size_t outsz, const char *url,
     return n < 0 ? 0 : (size_t) n;
 }
 
+size_t
+inf_url_trim (char *url)
+{
+    if (url == NULL)
+        return 0;
+    size_t l = strlen (url);
+    while (l > 0 && (url[l - 1] == ' ' || url[l - 1] == '\t'
+                     || url[l - 1] == '\r' || url[l - 1] == '\n'
+                     || strchr (",;:.!?)\]}'\"", url[l - 1]) != NULL))
+        url[--l] = '\0';
+    return l;
+}
+
 /* --- /read-code: language detection + code highlighting ------------- */
 
 static const struct

@@ -266,6 +266,11 @@ size_t inf_text_highlight (char *out, size_t outsz, const char *text,
  * scheme; here we additionally reject a bare "/" or "?" as host). */
 bool inf_url_valid (const char *url);
 
+/* Strip trailing whitespace and sentence punctuation (",;:.!?)...]"
+ * quotes) from an URL in place - a prompt line often ends with a comma.
+ * Returns the new length. */
+size_t inf_url_trim (char *url);
+
 /* Training element built from a fetched page (data-base-translator
  * contract, schema.sql `training_data`): SHA-256 of the extracted
  * text as anti-duplicate checksum, then the JSON write payload for
