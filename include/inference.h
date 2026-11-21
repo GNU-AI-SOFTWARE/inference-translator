@@ -205,6 +205,7 @@ enum inf_client_cmd
     INF_CMD_QUIT,
     INF_CMD_LEARN,
     INF_CMD_READ_CODE,
+    INF_CMD_LEARN_CODE,
     INF_CMD_UNKNOWN
 };
 

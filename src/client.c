@@ -412,6 +412,8 @@ read_root (const char *mount, char *out, size_t outsz)
     return read_node_m (mount, "", out, outsz);
 }
 
+static void db_store_and_report (const char *rec);
+
 static void
 cmd_learn (const char *arg)
 {
@@ -472,39 +474,47 @@ cmd_learn (const char *arg)
         char rec[300000];
         inf_training_record (rec, sizeof rec, line, status, text, sum);
 
+        db_store_and_report (rec);
+      }
+}
+
+/* Write one training record to the db mount root and print the
+ * (highlighted) answer: inserted green, duplicate yellow, error red. */
+static void
+db_store_and_report (const char *rec)
+{
+    if (inf_client_color ())
+        printf ("\033[2m\u2192 write %s\033[0m\n", g_db);
+    else
+        printf ("\u2192 write %s\n", g_db);
+    if (write_root (g_db, rec, strlen (rec)) != 0)
+      {
+        printf ("  /db injoignable (%s) — montez db-translator :\n"
+                "    settrans -a /db db-translator --conninfo \"dbname=gnuai\"\n",
+                strerror (errno));
+        return;
+      }
+    char resp[2048];
+    if (inf_client_color ())
+        printf ("\033[2m\u2192 read %s\033[0m\n", g_db);
+    else
+        printf ("\u2192 read %s\n", g_db);
+    if (read_root (g_db, resp, sizeof resp) < 0)
+        printf ("  pas de réponse de %s\n", g_db);
+    else
+      {
+        resp[strcspn (resp, "\r\n")] = '\0';
+        const char *a = "";
         if (inf_client_color ())
-            printf ("\033[2m\u2192 write %s\033[0m\n", g_db);
+            a = strstr (resp, "duplicate") != NULL ? "\033[33m"
+              : strstr (resp, "error") != NULL ? "\033[1;31m"
+              : "\033[32m";
+        char hl[8192];
+        inf_json_highlight (hl, sizeof hl, resp, inf_client_color ());
+        if (*a)
+            printf ("  db: %s%s\033[0m\n", a, hl);
         else
-            printf ("\u2192 write %s\n", g_db);
-        if (write_root (g_db, rec, strlen (rec)) != 0)
-          {
-            printf ("  /db injoignable (%s) — montez db-translator :\n"
-                    "    settrans -a /db db-translator --conninfo \"dbname=gnuai\"\n",
-                    strerror (errno));
-            return;
-          }
-        char resp[2048];
-        if (inf_client_color ())
-            printf ("\033[2m\u2192 read %s\033[0m\n", g_db);
-        else
-            printf ("\u2192 read %s\n", g_db);
-        if (read_root (g_db, resp, sizeof resp) < 0)
-            printf ("  pas de réponse de %s\n", g_db);
-        else
-          {
-            resp[strcspn (resp, "\r\n")] = '\0';
-            const char *a = "";
-            if (inf_client_color ())
-                a = strstr (resp, "duplicate") != NULL ? "\033[33m"
-                  : strstr (resp, "error") != NULL ? "\033[1;31m"
-                  : "\033[32m";
-            char hl[8192];
-            inf_json_highlight (hl, sizeof hl, resp, inf_client_color ());
-            if (*a)
-                printf ("  db: %s%s\033[0m\n", a, hl);
-            else
-                printf ("  db: %s\n", hl);
-          }
+            printf ("  db: %s\n", hl);
       }
 }
 
@@ -757,6 +767,59 @@ cmd_read_code (const char *arg)
         printf ("\n");
 }
 
+/* --- /learn-code: /read-code + persist the code into /db ------------- */
+
+static void
+cmd_learn_code (const char *arg)
+{
+    char urlbuf[2048];
+    if (arg == NULL || *arg == '\0')
+      {
+        printf ("  usage: /learn-code URL (http://... ou https://...)\n");
+        return;
+      }
+    snprintf (urlbuf, sizeof urlbuf, "%s", arg);
+    inf_url_trim (urlbuf);
+    if (!inf_url_valid (urlbuf))
+      {
+        printf ("  URL invalide: http:// ou https:// suivi d'un hôte requis\n");
+        return;
+      }
+    long status;
+    char *body;
+    size_t blen;
+    if (fetch_url (urlbuf, &status, &body, &blen) != 0)
+        return;
+    print_http_status (status);
+    if (status < 200 || status >= 300)
+      {
+        free (body);
+        return;
+      }
+    const char *lang = inf_lang_detect (urlbuf, body);
+    const char *a = inf_client_color () ? "\033[1;36m" : "";
+    const char *r = inf_client_color () ? "\033[0m" : "";
+    printf ("  langage détecté: %s%s%s (%zu octets)\n", a, lang, r, blen);
+
+    char preview[READ_CODE_PREVIEW_CHARS + 1];
+    size_t pl = blen < READ_CODE_PREVIEW_CHARS ? blen : READ_CODE_PREVIEW_CHARS;
+    memcpy (preview, body, pl);
+    preview[pl] = '\0';
+    char hl[READ_CODE_PREVIEW_CHARS * 4];
+    inf_code_highlight (hl, sizeof hl, preview, lang, inf_client_color ());
+    fputs (hl, stdout);
+    if (pl > 0 && preview[pl - 1] != '\n')
+        printf ("\n");
+
+    /* persist the raw code as a training element (training_data) */
+    char sum[65];
+    inf_sha256_hex (sum, (const unsigned char *) body, blen);
+    char rec[300000];
+    inf_training_record (rec, sizeof rec, urlbuf, status, body, sum);
+    free (body);
+    db_store_and_report (rec);
+}
+
 /* --- input loop ------------------------------------------------------ */
 
 /* Redraw the prompt and the current line (after a completion).
@@ -911,7 +974,7 @@ usage (FILE *out)
     fprintf (out,
              "Usage: inference [--mount DIR] [--db DIR] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /status /stats /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /status /stats /help /quit.\n"
              "Base de données: /db par défaut (--db DIR ou $INFERENCE_DB).\n"
              "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
 }
@@ -1059,6 +1122,9 @@ main (int argc, char **argv)
             break;
           case INF_CMD_READ_CODE:
             cmd_read_code (arg);
+            break;
+          case INF_CMD_LEARN_CODE:
+            cmd_learn_code (arg);
             break;
           case INF_CMD_UNKNOWN:
           default:

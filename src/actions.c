@@ -23,6 +23,7 @@ const struct inf_action inf_actions[] =
     { "/quit",   "quitter" },
     { "/learn",  "enregistrer les URL de la requête comme éléments d'entraînement dans /db (training_data)" },
     { "/read-code", "lire le code d'une URL : langage détecté + coloration syntaxique" },
+    { "/learn-code", "lire le code d'une URL (langage détecté) ET l'enregistrer dans /db (training_data)" },
 };
 
 const size_t inf_actions_count =

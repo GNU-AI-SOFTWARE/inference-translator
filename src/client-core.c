@@ -90,11 +90,14 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
                 cmd = INF_CMD_LEARN;
             else if (strcmp (inf_actions[i].command, "/read-code") == 0)
                 cmd = INF_CMD_READ_CODE;
+            else if (strcmp (inf_actions[i].command, "/learn-code") == 0)
+                cmd = INF_CMD_LEARN_CODE;
             else
                 cmd = INF_CMD_QUIT;
 
             if ((cmd == INF_CMD_TASK || cmd == INF_CMD_FETCH
-                 || cmd == INF_CMD_LEARN || cmd == INF_CMD_READ_CODE)
+                 || cmd == INF_CMD_LEARN || cmd == INF_CMD_READ_CODE
+                 || cmd == INF_CMD_LEARN_CODE)
                 && arg != NULL && argsz > 0)
               {
                 /* No space in the line ("/task" alone): sp is NULL, the
