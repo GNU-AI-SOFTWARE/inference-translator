@@ -1237,9 +1237,11 @@ inf_history_add (struct inf_history *h, const char *line)
         h->lines = nl;
         h->cap = ncap;
       }
-    char *copy = strndup (line, l);
+    char *copy = malloc (l + 1);
     if (copy == NULL)
         return h->count;
+    memcpy (copy, line, l);
+    copy[l] = '\0';
     h->lines[h->count++] = copy;
     return h->count;
 }
@@ -1253,10 +1255,33 @@ inf_history_load (struct inf_history *h, const char *path)
     if (f == NULL)
         return;                         /* missing file is not an error */
     char *buf = NULL;
-    size_t bufcap = 0;
-    ssize_t n;
-    while ((n = getline (&buf, &bufcap, f)) >= 0)
-        inf_history_add (h, buf);       /* add() trims and dedupes */
+    size_t bufcap = 0, len = 0;
+    int c;
+    while ((c = fgetc (f)) != EOF)
+      {
+        if (len + 1 >= bufcap)
+          {
+            size_t ncap = bufcap == 0 ? 256 : bufcap * 2;
+            char *nb = realloc (buf, ncap);
+            if (nb == NULL)
+                break;
+            buf = nb;
+            bufcap = ncap;
+          }
+        if (c == '\n')
+          {
+            buf[len] = '\0';
+            inf_history_add (h, buf);   /* add() trims and dedupes */
+            len = 0;
+          }
+        else
+            buf[len++] = (char) c;
+      }
+    if (len > 0)                        /* last line without newline */
+      {
+        buf[len] = '\0';
+        inf_history_add (h, buf);
+      }
     free (buf);
     fclose (f);
 }
@@ -1277,16 +1302,12 @@ inf_history_append (const char *path, const char *line)
     int fd = open (path, O_WRONLY | O_CREAT | O_APPEND, 0600);
     if (fd < 0)
         return -1;
-    FILE *f = fdopen (fd, "a");
-    if (f == NULL)
-      {
-        close (fd);
-        return -1;
-      }
+    size_t l = strlen (line);
     int rc = 0;
-    if (fprintf (f, "%s\n", line) < 0)
+    if (write (fd, line, l) != (ssize_t) l
+        || write (fd, "\n", 1) != 1)
         rc = -1;
-    if (fclose (f) != 0)
+    if (close (fd) != 0)
         rc = -1;
     return rc;
 }
