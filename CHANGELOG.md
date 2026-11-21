@@ -41,6 +41,13 @@ par un bump de `version`.
   n'écrit jamais de descripteur de run dans `/orchestrate` (contrat gelé).
 - **Extraction JSON** dans le cœur pur : `inf_json_str_field`,
   `inf_json_num_field` (tests 51/51, contrat 36/36 — 12 commandes slash).
+- **Phase 6 (historique de session)** : chaque ligne acceptée est
+  enregistrée dans `$HOME/.history` (défaut ; `--history FILE` /
+  `$INFERENCE_HISTORY`, mode 0600, dédoublonnage des doublons consécutifs
+  façon `HISTCONTROL=ignoredups`) et rappelable par **flèche haut/bas**
+  comme un terminal TTY (la ligne en cours est préservée puis restaurée) ;
+  commande **`/history`** (13e commande slash) ; cœur pur
+  `inf_history_*` testé (64/64, contrat 36/36 — 13 commandes).
 
 ## [0.1.0] — 2026-11-20
 

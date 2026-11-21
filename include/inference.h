@@ -207,6 +207,7 @@ enum inf_client_cmd
     INF_CMD_READ_CODE,
     INF_CMD_LEARN_CODE,
     INF_CMD_WATCH,
+    INF_CMD_HISTORY,
     INF_CMD_UNKNOWN
 };
 
@@ -311,5 +312,29 @@ int inf_json_num_field (const char *json, const char *key, double *out);
  * must carry an "instances" array, "result" an "output" string (or the
  * {"empty": true} marker). */
 bool inf_orch_role_ok (const char *node, const char *buf);
+
+/* --- Phase 6: session history, persisted in a .history file --------- */
+
+struct inf_history
+{
+    char **lines;       /* owned, strdup'd, NUL-terminated */
+    size_t count;
+    size_t cap;
+};
+
+void inf_history_init (struct inf_history *h);
+void inf_history_free (struct inf_history *h);
+/* Load PATH (one entry per line); empty lines and consecutive
+ * duplicates are skipped (HISTCONTROL=ignoredups).  A missing file is
+ * not an error. */
+void inf_history_load (struct inf_history *h, const char *path);
+/* Append LINE (skipped when empty or identical to the last entry).
+ * Returns the entry count after the call. */
+size_t inf_history_add (struct inf_history *h, const char *line);
+/* Entry I (NULL when out of range). */
+const char *inf_history_get (const struct inf_history *h, size_t i);
+/* Append one line + '\n' to PATH (O_APPEND|O_CREAT, mode 0600).
+ * Returns 0 on success, -1 on error. */
+int inf_history_append (const char *path, const char *line);
 
 #endif /* INFERENCE_H */

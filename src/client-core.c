@@ -10,6 +10,7 @@
 
 #include "inference.h"
 
+#include <fcntl.h>
 #include <stdint.h>
 #include <strings.h>
 #include <stdio.h>
@@ -94,6 +95,8 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
                 cmd = INF_CMD_LEARN_CODE;
             else if (strcmp (inf_actions[i].command, "/watch") == 0)
                 cmd = INF_CMD_WATCH;
+            else if (strcmp (inf_actions[i].command, "/history") == 0)
+                cmd = INF_CMD_HISTORY;
             else
                 cmd = INF_CMD_QUIT;
 
@@ -1183,4 +1186,107 @@ inf_orch_role_ok (const char *node, const char *buf)
     if (strcmp (node, "status") == 0)
         return strstr (buf, "\"instances\"") != NULL;
     return strstr (buf, "\"output\"") != NULL;
+}
+
+/* --- Phase 6: session history (.history file, up/down arrows) ------- */
+
+void
+inf_history_init (struct inf_history *h)
+{
+    if (h == NULL)
+        return;
+    h->lines = NULL;
+    h->count = 0;
+    h->cap = 0;
+}
+
+void
+inf_history_free (struct inf_history *h)
+{
+    if (h == NULL)
+        return;
+    for (size_t i = 0; i < h->count; i++)
+        free (h->lines[i]);
+    free (h->lines);
+    h->lines = NULL;
+    h->count = 0;
+    h->cap = 0;
+}
+
+size_t
+inf_history_add (struct inf_history *h, const char *line)
+{
+    if (h == NULL || line == NULL)
+        return 0;
+    size_t l = strlen (line);
+    while (l > 0 && (line[l - 1] == ' ' || line[l - 1] == '\t'
+                     || line[l - 1] == '\r' || line[l - 1] == '\n'))
+        l--;
+    if (l == 0)
+        return h->count;
+    /* HISTCONTROL=ignoredups: never append the same line twice in a row. */
+    if (h->count > 0 && strncmp (h->lines[h->count - 1], line, l) == 0
+        && h->lines[h->count - 1][l] == '\0')
+        return h->count;
+    if (h->count == h->cap)
+      {
+        size_t ncap = h->cap == 0 ? 32 : h->cap * 2;
+        char **nl = realloc (h->lines, ncap * sizeof *nl);
+        if (nl == NULL)
+            return h->count;
+        h->lines = nl;
+        h->cap = ncap;
+      }
+    char *copy = strndup (line, l);
+    if (copy == NULL)
+        return h->count;
+    h->lines[h->count++] = copy;
+    return h->count;
+}
+
+void
+inf_history_load (struct inf_history *h, const char *path)
+{
+    if (h == NULL || path == NULL)
+        return;
+    FILE *f = fopen (path, "r");
+    if (f == NULL)
+        return;                         /* missing file is not an error */
+    char *buf = NULL;
+    size_t bufcap = 0;
+    ssize_t n;
+    while ((n = getline (&buf, &bufcap, f)) >= 0)
+        inf_history_add (h, buf);       /* add() trims and dedupes */
+    free (buf);
+    fclose (f);
+}
+
+const char *
+inf_history_get (const struct inf_history *h, size_t i)
+{
+    if (h == NULL || i >= h->count)
+        return NULL;
+    return h->lines[i];
+}
+
+int
+inf_history_append (const char *path, const char *line)
+{
+    if (path == NULL || line == NULL)
+        return -1;
+    int fd = open (path, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    if (fd < 0)
+        return -1;
+    FILE *f = fdopen (fd, "a");
+    if (f == NULL)
+      {
+        close (fd);
+        return -1;
+      }
+    int rc = 0;
+    if (fprintf (f, "%s\n", line) < 0)
+        rc = -1;
+    if (fclose (f) != 0)
+        rc = -1;
+    return rc;
 }
