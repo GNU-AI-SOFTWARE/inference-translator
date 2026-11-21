@@ -161,7 +161,7 @@ main (void)
     size_t tn = inf_html_to_text (txt, sizeof txt,
         "<p>Hello <b>world</b> &amp; all</p><script>var x=1;</script>");
     check ("html_to_text strips tags/scripts and decodes entities",
-           strcmp (txt, "Hello world & all") == 0);
+           strcmp (txt, "Hello world & all") == 0 && tn == strlen (txt));
 
     char rec[8192];
     inf_training_record (rec, sizeof rec, "https://example.org/a",
