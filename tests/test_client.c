@@ -262,6 +262,16 @@ main (void)
     check ("json_num_field fails on a string value",
            inf_json_num_field (res, "output", &dv) == -1);
 
+    check ("orch_role_ok: a real status carries instances",
+           inf_orch_role_ok ("status", st));
+    check ("orch_role_ok: the result JSON is NOT a status (trivfs shared slot)",
+           !inf_orch_role_ok ("status", res));
+    check ("orch_role_ok: a result carries output",
+           inf_orch_role_ok ("result", res));
+    check ("orch_role_ok: {\"empty\": true} is a valid response",
+           inf_orch_role_ok ("result", "{\"empty\": true}")
+           && inf_orch_role_ok ("status", "{\"empty\": true}"));
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }

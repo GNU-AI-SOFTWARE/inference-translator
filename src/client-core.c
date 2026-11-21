@@ -1172,3 +1172,15 @@ inf_json_num_field (const char *json, const char *key, double *out)
     *out = d;
     return 0;
 }
+
+bool
+inf_orch_role_ok (const char *node, const char *buf)
+{
+    if (node == NULL || buf == NULL)
+        return false;
+    if (strstr (buf, "\"empty\"") != NULL)
+        return true;
+    if (strcmp (node, "status") == 0)
+        return strstr (buf, "\"instances\"") != NULL;
+    return strstr (buf, "\"output\"") != NULL;
+}

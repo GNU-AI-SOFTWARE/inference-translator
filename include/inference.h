@@ -304,4 +304,12 @@ int inf_json_str_field (const char *json, const char *key,
                         char *out, size_t outsz);
 int inf_json_num_field (const char *json, const char *key, double *out);
 
+/* Phase 4: does BUF carry the expected role of a /orchestrate node?
+ * In phase 1 (trivfs) every sub-node name serves the same shared slot,
+ * so reading /orchestrate/status can return the result JSON; the client
+ * uses this to fall back to the {"command":...} protocol.  "status"
+ * must carry an "instances" array, "result" an "output" string (or the
+ * {"empty": true} marker). */
+bool inf_orch_role_ok (const char *node, const char *buf);
+
 #endif /* INFERENCE_H */

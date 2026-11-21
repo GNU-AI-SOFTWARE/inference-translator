@@ -224,16 +224,18 @@ narrate_orch (const char *verb, const char *node)
         printf ("→ %s\n", line);
 }
 
-/* orch_read — read one role of /orchestrate: a plain sub-node in
- * phase 2+ (netfs /orchestrate/status, /orchestrate/result), else the
- * phase 1 trivfs command protocol (write {"command":"status"} on the
+/* orch_read — read one role of /orchestrate.  Phase 2+ (netfs): plain
+ * sub-nodes /orchestrate/status and /orchestrate/result.  Phase 1
+ * (trivfs): a single shared slot serves every name, so a sub-node read
+ * may succeed with the wrong role; inf_orch_role_ok detects that and we
+ * fall back to the command protocol (write {"command":"<node>"} on the
  * mount root, read the root back).  The interface never writes a run
  * descriptor there (frozen contract). */
 static ssize_t
 orch_read (const char *node, char *out, size_t outsz)
 {
     ssize_t n = read_node_m (g_orch, node, out, outsz);
-    if (n >= 0)
+    if (n >= 0 && inf_orch_role_ok (node, out))
         return n;
     char cmd[64];
     snprintf (cmd, sizeof cmd, "{\"command\":\"%s\"}", node);
