@@ -34,6 +34,25 @@ Point de montage du translator (défaut :
 ou la variable
 .BR INFERENCE_MOUNT ).
 .TP
+.B \-\-db " DIR"
+Point de montage de la base de données pour /learn et /learn-code
+(défaut :
+.IR /db ,
+ou la variable
+.BR INFERENCE_DB ).
+.TP
+.B \-\-orchestrate " DIR"
+Point de montage de l'orchestrateur surveillé par /watch (défaut :
+.IR /orchestrate ,
+ou la variable
+.BR INFERENCE_ORCH ).
+.TP
+.B \-\-history " FILE"
+Fichier d'historique des lignes de la session (défaut :
+.IR $HOME/.history ,
+ou la variable
+.BR INFERENCE_HISTORY ).
+.TP
 .B \-V ", " \-\-version
 Affiche la version et quitte.
 .TP
@@ -97,6 +116,46 @@ quitte l'affichage.  Sources : /proc/stat, /proc/meminfo,
 Relit et affiche
 .IR <montage>/status .
 .TP
+.BI /learn " [URL ...]"
+Télécharge chaque URL (ou celles de la requête en cours) via
+.B httpfs
+et enregistre le contenu comme élément d'entraînement dans la base
+(écriture JSON sur
+.IR /db ,
+table
+.I training_data
+: source_url, http_status, content, checksum SHA-256 anti-doublon).
+.TP
+.BI /read-code " URL"
+Télécharge le code d'une URL, détecte le langage (extension de l'URL,
+puis shebang, sinon « text ») et affiche un aperçu coloré
+(8 Ko max).
+.TP
+.BI /learn-code " URL"
+/read-code puis persistance du code brut dans
+.IR /db .
+.TP
+.B /watch
+Surveille l'orchestrateur :
+.IR /orchestrate .
+Polling du statut (type 2) jusqu'à l'état terminal, affichage des
+instances en couleur, puis résultat agrégé (type 3) en JSON coloré avec
+.I output
+affiché façon machine à écrire et
+.I confidence
+colorée.  L'interface n'écrit jamais de descripteur de run dans
+.IR /orchestrate .
+.TP
+.B /history
+Liste numérotée de l'historique de la session (fichier
+.I .history
++ session en cours).
+.TP
+.B /uptime
+Affiche la version du client, la version du translator (lue dans
+.IR <montage>/version )
+et l'uptime de la session client.
+.TP
 .B /help
 Affiche l'aide intégrée (commandes, tâches, édition, nœuds).
 .TP
@@ -107,7 +166,10 @@ En mode brut (termios) :
 .TP
 .B DEL / retour arrière (0x7f, 0x08)
 Efface le dernier caractère ; la flèche gauche (ESC [ D) fait de même.
-Les autres séquences CSI (flèches, Suppr) sont ignorées proprement.
+Flèche haut (ESC [ A) / bas (ESC [ B) : rappelle une ligne de
+l'historique (.history) comme un terminal TTY ; la ligne en cours est
+préservée puis restaurée.
+Les autres séquences CSI (Suppr...) sont ignorées proprement.
 .TP
 .B Tab (0x09)
 Auto-complétion : complète une commande « /... » (ex. « /st<Tab> » →
@@ -149,6 +211,18 @@ Lecture : paramètres (vide en phase 0) et version du translator.
 .B INFERENCE_MOUNT
 Point de montage par défaut (remplacé par
 .BR \-\-mount ).
+.TP
+.B INFERENCE_DB
+Point de montage de la base (remplacé par
+.BR \-\-db ).
+.TP
+.B INFERENCE_ORCH
+Point de montage de l'orchestrateur (remplacé par
+.BR \-\-orchestrate ).
+.TP
+.B INFERENCE_HISTORY
+Fichier d'historique (remplacé par
+.BR \-\-history ).
 .TP
 .B NO_COLOR
 Si définie et non vide, désactive les couleurs ANSI.

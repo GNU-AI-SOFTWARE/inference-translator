@@ -208,6 +208,7 @@ enum inf_client_cmd
     INF_CMD_LEARN_CODE,
     INF_CMD_WATCH,
     INF_CMD_HISTORY,
+    INF_CMD_UPTIME,
     INF_CMD_UNKNOWN
 };
 
@@ -336,5 +337,10 @@ const char *inf_history_get (const struct inf_history *h, size_t i);
 /* Append one line + '\n' to PATH (O_APPEND|O_CREAT, mode 0600).
  * Returns 0 on success, -1 on error. */
 int inf_history_append (const char *path, const char *line);
+
+/* /uptime: format SECONDS as a human uptime string, e.g. "05s",
+ * "1m 05s", "1h 00m 00s", "1j 01h 01m 01s".  Bounded, NUL-terminated,
+ * returns the length written. */
+size_t inf_format_uptime (char *out, size_t outsz, long seconds);
 
 #endif /* INFERENCE_H */

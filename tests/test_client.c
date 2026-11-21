@@ -280,6 +280,23 @@ main (void)
            inf_client_parse_command ("/history", larg, sizeof larg)
                == INF_CMD_HISTORY);
 
+    larg[0] = 'X';
+    check ("/uptime parses as a command without argument",
+           inf_client_parse_command ("/uptime", larg, sizeof larg)
+               == INF_CMD_UPTIME);
+
+    char ub2[64];
+    inf_format_uptime (ub2, sizeof ub2, 0);
+    check ("uptime 0s", strcmp (ub2, "0s") == 0);
+    inf_format_uptime (ub2, sizeof ub2, 65);
+    check ("uptime 1m 05s", strcmp (ub2, "1m 05s") == 0);
+    inf_format_uptime (ub2, sizeof ub2, 3600);
+    check ("uptime 1h 00m 00s", strcmp (ub2, "1h 00m 00s") == 0);
+    inf_format_uptime (ub2, sizeof ub2, 90061);
+    check ("uptime 1j 01h 01m 01s", strcmp (ub2, "1j 01h 01m 01s") == 0);
+    inf_format_uptime (ub2, sizeof ub2, -5);
+    check ("uptime negative clamps to 0s", strcmp (ub2, "0s") == 0);
+
     char hpath[] = "/tmp/inf-hist-test-XXXXXX";
     int hfd = mkstemp (hpath);
     check ("history: mkstemp works", hfd >= 0);

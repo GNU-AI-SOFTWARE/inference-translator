@@ -48,6 +48,13 @@ par un bump de `version`.
   comme un terminal TTY (la ligne en cours est préservée puis restaurée) ;
   commande **`/history`** (13e commande slash) ; cœur pur
   `inf_history_*` testé (64/64, contrat 36/36 — 13 commandes).
+- **`/uptime`** (14e commande slash) : version du client, version du
+  translator (lue dans `<montage>/version`) et uptime de la session ;
+  formateur pur `inf_format_uptime` testé (70/70, contrat 36/36 — 14
+  commandes). Documentation à jour : `inference(1)` (options `--db`,
+  `--orchestrate`, `--history`, commandes `/learn` `/read-code`
+  `/learn-code` `/watch` `/history` `/uptime`, flèches haut/bas,
+  variables `INFERENCE_DB`/`INFERENCE_ORCH`/`INFERENCE_HISTORY`).
 
 ## [0.1.0] — 2026-11-20
 
