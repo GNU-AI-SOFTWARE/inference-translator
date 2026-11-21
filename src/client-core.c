@@ -389,7 +389,7 @@ inf_url_trim (char *url)
     size_t l = strlen (url);
     while (l > 0 && (url[l - 1] == ' ' || url[l - 1] == '\t'
                      || url[l - 1] == '\r' || url[l - 1] == '\n'
-                     || strchr (",;:.!?)\]}'\"", url[l - 1]) != NULL))
+                     || strchr (",;:.!?)]}'\"", url[l - 1]) != NULL))
         url[--l] = '\0';
     return l;
 }
