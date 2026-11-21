@@ -222,6 +222,46 @@ main (void)
                                      larg, sizeof larg) == INF_CMD_LEARN_CODE
            && strcmp (larg, "https://x.org/a.py") == 0);
 
+    /* --- Phase 4: /watch and the orchestrator JSON readers ---------- */
+
+    larg[0] = 'X';
+    check ("/watch parses as a command without argument",
+           inf_client_parse_command ("/watch", larg, sizeof larg)
+               == INF_CMD_WATCH);
+
+    const char *st = "{\"run_id\": 12, \"state\": \"done\", \"instances\": ["
+        "{\"id\": 1, \"topology\": \"2,4,1\", \"state\": \"done\"},"
+        "{\"id\": 2, \"topology\": \"2,8,1\", \"state\": \"failed\"}]}";
+    char sv[64];
+    check ("json_str_field reads the top-level state",
+           inf_json_str_field (st, "state", sv, sizeof sv) == 0
+           && strcmp (sv, "done") == 0);
+    check ("json_str_field reads a nested instance state (last wins is fine,"
+           " key must follow '{' or ',')",
+           inf_json_str_field (st, "topology", sv, sizeof sv) == 0
+           && strcmp (sv, "2,4,1") == 0);
+    check ("json_str_field fails on an absent key",
+           inf_json_str_field (st, "nope", sv, sizeof sv) == -1);
+    double dv = 0;
+    check ("json_num_field reads run_id",
+           inf_json_num_field (st, "run_id", &dv) == 0 && dv == 12.0);
+
+    const char *res = "{\"run_id\": 12, \"state\": \"done\","
+        " \"aggregate_strategy\": \"majority\", \"output\": \"[1, 0]\","
+        " \"confidence\": 0.667}";
+    char ov[64];
+    check ("json_str_field reads output and unescapes",
+           inf_json_str_field (res, "output", ov, sizeof ov) == 0
+           && strcmp (ov, "[1, 0]") == 0);
+    check ("json_str_field unescapes a quote",
+           inf_json_str_field ("{\"k\":\"a\\\"b\"}", "k", ov, sizeof ov) == 0
+           && strcmp (ov, "a\"b") == 0);
+    check ("json_num_field reads confidence",
+           inf_json_num_field (res, "confidence", &dv) == 0
+           && dv > 0.666 && dv < 0.668);
+    check ("json_num_field fails on a string value",
+           inf_json_num_field (res, "output", &dv) == -1);
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }

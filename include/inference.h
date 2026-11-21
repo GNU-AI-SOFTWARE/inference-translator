@@ -206,6 +206,7 @@ enum inf_client_cmd
     INF_CMD_LEARN,
     INF_CMD_READ_CODE,
     INF_CMD_LEARN_CODE,
+    INF_CMD_WATCH,
     INF_CMD_UNKNOWN
 };
 
@@ -292,5 +293,15 @@ const char *inf_lang_detect (const char *url, const char *content);
  * verbatim copy when false.  Bounded by outsz, NUL-terminated. */
 size_t inf_code_highlight (char *out, size_t outsz, const char *code,
                            const char *lang, bool color);
+
+/* Phase 4 (/watch): minimal readers for the frozen orchestrator JSON
+ * (types 2 and 3, flat objects as rendered by orchestrator-translator).
+ * inf_json_str_field copies the string value of KEY ("key":"value")
+ * into OUT (unescaping \" and \\); inf_json_num_field parses the numeric
+ * value of KEY with strtod.  Both return 0 on success, -1 when the key
+ * is absent or the value has the wrong shape. */
+int inf_json_str_field (const char *json, const char *key,
+                        char *out, size_t outsz);
+int inf_json_num_field (const char *json, const char *key, double *out);
 
 #endif /* INFERENCE_H */

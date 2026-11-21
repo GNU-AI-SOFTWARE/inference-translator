@@ -14,6 +14,34 @@ Format « Keep a Changelog », versionnage sémantique. Les contrats gelés
 de `SPEC.md` ne changent jamais silencieusement : toute évolution passe
 par un bump de `version`.
 
+## [Unreleased]
+
+### Ajouté
+
+- **Phase 3 (client riche)** : coloration syntaxique du prompt et des JSON
+  (`inf_json_highlight`, `inf_text_highlight`), spinner pendant `/submit`,
+  statuts colorés, retour arrière UTF-8 corrigé (`del_char`),
+  redessin atomique de la ligne.
+- **`/learn [URL...]`** : enregistre les pages téléchargées comme
+  éléments d'entraînement dans `/db` (table `training_data` :
+  `source_url`, `http_status`, `content`, `checksum` SHA-256 anti-doublon) ;
+  `--db DIR` / `$INFERENCE_DB`, SHA-256 autonome et `inf_html_to_text` dans
+  le cœur pur.
+- **`/read-code URL`** : détection du langage (extension puis shebang) et
+  aperçu coloré (`inf_lang_detect`, `inf_code_highlight`) ;
+  `inf_url_trim` retire la ponctuation finale des URL (`https://x.org,`).
+- **`/learn-code URL`** : `/read-code` puis persistance du code dans `/db`.
+- **Phase 4 (côté client) `/watch`** : surveille `/orchestrate`
+  (`--orchestrate DIR` / `$INFERENCE_ORCH`) : polling du statut (type 2,
+  instances affichées en couleur) jusqu'à l'état terminal, puis
+  résultat agrégé (type 3) en JSON coloré avec `output` affiché
+  façon machine à écrire et `confidence` colorée. Lecture des
+  sous-nœuds `/orchestrate/{status,result}` (phase 2+) avec repli sur le
+  protocole de commandes phase 1 (`{"command":"status"}`). L'interface
+  n'écrit jamais de descripteur de run dans `/orchestrate` (contrat gelé).
+- **Extraction JSON** dans le cœur pur : `inf_json_str_field`,
+  `inf_json_num_field` (tests 51/51, contrat 36/36 — 12 commandes slash).
+
 ## [0.1.0] — 2026-11-20
 
 Première version publique (GNU AI 0.1.0).
