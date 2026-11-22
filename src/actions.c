@@ -30,6 +30,8 @@ const struct inf_action inf_actions[] =
     { "/reply", "répondre selon les données d'entraînement enregistrées (cache local)" },
     { "/sigmoid", "visualiser l'état des neurones montés (/llmN) après sigmoïde" },
     { "/entrainement", "remplir /db avec les données d'une URL, passées par le neuron-translator" },
+    { "/hf", "hf://buckets/... : lister (list) ou synchroniser (sync) un bucket/dataset HF vers un dossier local, puis ingérer dans /db" },
+    { "/db", "explorer la base : /db status | /db search MOT | /db list [N] | /db count" },
 };
 
 const size_t inf_actions_count =

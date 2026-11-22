@@ -265,7 +265,7 @@ usage (FILE *out)
     fprintf (out,
              "Usage: inference [--mount DIR] [--db DIR] [--orchestrate DIR] [--history FILE] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /watch /history /uptime /reply [question] /sigmoid /entrainement URL /status /stats /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /watch /history /uptime /reply [question] /sigmoid /entrainement URL /hf sync hf://... DIR /db status|search|list|count /status /stats /help /quit.\n"
              "Base de données: /db par défaut (--db DIR ou $INFERENCE_DB).\n"
              "Orchestrateur: /orchestrate par défaut (--orchestrate DIR ou $INFERENCE_ORCH).\n"
              "Cache d'entraînement (pour /reply): $INFERENCE_TRAINING ou $HOME/.inference-training.ndjson.\n"
@@ -504,6 +504,12 @@ main (int argc, char **argv)
             break;
           case INF_CMD_TRAINING:
             cmd_training (arg);
+            break;
+          case INF_CMD_HF:
+            cmd_hf (arg);
+            break;
+          case INF_CMD_DB:
+            cmd_db (arg);
             break;
           case INF_CMD_UNKNOWN:
           default:

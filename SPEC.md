@@ -331,7 +331,18 @@ faux arbre).
   - `/entrainement URL` : télécharge la page, la découpe en extraits, fait
     passer chaque extrait par le neuron-translator (`input` sur `/llm1..N`,
     lecture de la sortie) et enregistre la paire {entrée, sortie} dans `/db`
-    (`training_data`) et le cache local.
+    (`training_data`) et le cache local ;
+  - `/hf list|sync hf://[buckets|datasets|models]/<owner>/<repo>[/prefix] [dir]` :
+    liste l'arbre d'un dépôt Hugging Face via l'API HTTP
+    (`inf_hf_api_url`) ou le synchronise vers un dossier local
+    (`/hf sync hf://buckets/... ./local` : téléchargement par l'endpoint
+    `resolve` `inf_hf_resolve_url`, copie locale, puis conversion de chaque
+    fichier en enregistrements `/db` `training_data` — découpage, SHA-256,
+    `inf_training_record` — et cache local) ;
+  - `/db status|search MOT|list [N]|count` : exploration de la base —
+    `status` écrit `{"status": true}` sur `/db` et affiche la réponse ;
+    `search`/`list`/`count` parcourent le cache local (miroir NDJSON de
+    `training_data`, `inf_training_search_list`).
 - **DNS automatique** : à chaque URL ajoutée (`/fetch`, `/learn`,
   `/read-code`, `/learn-code`, `/entrainement`), si l'hôte n'est pas une IP
   littérale et absent de `/etc/hosts`, il est résolu (`getent hosts`) puis
@@ -350,7 +361,7 @@ gcc -std=c23 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
     -Iinclude -o /tmp/test_client tests/test_client.c \
     src/contract.c src/expr.c src/actions.c src/spinner.c src/fs.c src/client-core.c \
     src/training.c src/text.c src/stats.c src/jsonlite.c src/history.c
-/tmp/test_client                    # cœur pur du client (89/89)
+/tmp/test_client                    # cœur pur du client (104/104)
 ./autogen.sh && ./configure && make && make check   # + test_client.sh (pty via script(1))
 sh tests/test_client.sh src/inference
 # Sur GNU/Hurd avec le translator monté, en interactif (console série) :

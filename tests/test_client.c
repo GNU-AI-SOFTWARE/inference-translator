@@ -265,6 +265,84 @@ main (void)
     check ("stats line rendered", sn > 0 && strstr (sline, "CPU") != NULL
            && strstr (sline, "MEM") != NULL);
 
+    /* --- /hf and /db commands parse ------------------------------------- */
+
+    check ("/hf sync parses with url + dir",
+           inf_client_parse_command ("/hf sync hf://buckets/clairemariecoralie/cyber-security-bucket ./local",
+                                    arg, sizeof arg) == INF_CMD_HF
+           && strstr (arg, "hf://buckets/clairemariecoralie/cyber-security-bucket ./local") != NULL);
+    check ("/db search parses",
+           inf_client_parse_command ("/db search despotisme",
+                                    arg, sizeof arg) == INF_CMD_DB
+           && strcmp (arg, "search despotisme") == 0);
+
+    /* --- hf:// URL mapping ---------------------------------------------- */
+
+    char kind[16], owner[256], repo[256], path[1024];
+    check ("hf bucket url parsed",
+           inf_hf_parse ("hf://buckets/clairemariecoralie/cyber-security-bucket",
+                         kind, sizeof kind, owner, sizeof owner,
+                         repo, sizeof repo, path, sizeof path)
+           && strcmp (kind, "buckets") == 0
+           && strcmp (owner, "clairemariecoralie") == 0
+           && strcmp (repo, "cyber-security-bucket") == 0
+           && path[0] == '\0');
+    check ("hf dataset url with prefix parsed",
+           inf_hf_parse ("hf://datasets/org/ds/data/train.jsonl",
+                         kind, sizeof kind, owner, sizeof owner,
+                         repo, sizeof repo, path, sizeof path)
+           && strcmp (kind, "datasets") == 0
+           && strcmp (repo, "ds") == 0
+           && strcmp (path, "data/train.jsonl") == 0);
+    check ("hf url rejects garbage",
+           !inf_hf_parse ("https://x", kind, sizeof kind, owner, sizeof owner,
+                          repo, sizeof repo, path, sizeof path)
+           && !inf_hf_parse ("hf://buckets/onlyowner", kind, sizeof kind,
+                             owner, sizeof owner, repo, sizeof repo,
+                             path, sizeof path));
+    char api[2048];
+    inf_hf_api_url ("hf://buckets/clairemariecoralie/cyber-security-bucket",
+                   api, sizeof api);
+    check ("hf api url for buckets",
+           strcmp (api, "https://huggingface.co/api/buckets/clairemariecoralie/cyber-security-bucket/tree/main?recursive=true") == 0);
+    char rurl[2048];
+    inf_hf_resolve_url ("hf://buckets/clairemariecoralie/cyber-security-bucket",
+                        "data/a.txt", rurl, sizeof rurl);
+    check ("hf resolve url for bucket file",
+           strcmp (rurl, "https://huggingface.co/buckets/clairemariecoralie/cyber-security-bucket/resolve/main/data/a.txt") == 0);
+    inf_hf_resolve_url ("hf://datasets/org/ds", "f.bin", rurl, sizeof rurl);
+    check ("hf resolve url for dataset file",
+           strcmp (rurl, "https://huggingface.co/datasets/org/ds/resolve/main/f.bin") == 0);
+
+    /* --- JSON array helpers (HF tree API) -------------------------------- */
+
+    const char *tree = "[{\"path\":\"a.txt\",\"type\":\"file\",\"size\":12},"
+                       "{\"path\":\"dir\",\"type\":\"directory\"},"
+                       "{\"path\":\"b.json\",\"type\":\"file\",\"size\":3}]";
+    check ("json array count", inf_json_array_count (tree) == 3);
+    char obj[512];
+    inf_json_array_object (tree, 0, obj, sizeof obj);
+    check ("json array object 0",
+           strstr (obj, "\"path\":\"a.txt\"") != NULL);
+    inf_json_array_object (tree, 2, obj, sizeof obj);
+    check ("json array object 2",
+           strstr (obj, "\"path\":\"b.json\"") != NULL);
+    check ("json array object out of range -> 0",
+           inf_json_array_object (tree, 9, obj, sizeof obj) == 0);
+    check ("json array on non-array -> 0",
+           inf_json_array_count ("{\"a\":1}") == 0);
+
+    /* --- /db search list --------------------------------------------------- */
+
+    char hits[8192];
+    size_t nh = inf_training_search_list (tcache, "despotisme", hits,
+                                          sizeof hits, 10);
+    check ("training search list finds 1 hit", nh == 1
+           && strstr (hits, "despotisme") != NULL);
+    check ("training search list no match -> 0",
+           inf_training_search_list (tcache, "zzzzqqqq", hits, sizeof hits,
+                                     10) == 0);
+
     char larg[256];
     check ("/learn parses as a command with its URL argument",
            inf_client_parse_command ("/learn https://example.org",

@@ -217,6 +217,8 @@ enum inf_client_cmd
     INF_CMD_REPLY,
     INF_CMD_SIGMOID,
     INF_CMD_TRAINING,
+    INF_CMD_HF,
+    INF_CMD_DB,
     INF_CMD_UNKNOWN
 };
 
@@ -396,6 +398,39 @@ size_t inf_text_to_vector (const char *text, double *out, size_t n);
  * record scores above zero). */
 size_t inf_training_search (const char *ndjson, const char *query,
                             char *out, size_t outsz);
+
+/* --- /hf: Hugging Face buckets/datasets over plain HTTP --------------
+ *
+ * inf_hf_parse: parse hf://[buckets|datasets|models]/<owner>/<repo>[/<path>]
+ * into KIND ("buckets"/"datasets"/"models"), OWNER, REPO and PATH
+ * (possibly empty).  Returns false on a malformed hf:// URL. */
+bool inf_hf_parse (const char *hfurl, char *kind, size_t kindsz,
+                   char *owner, size_t osz, char *repo, size_t rsz,
+                   char *path, size_t psz);
+
+/* inf_hf_api_url: the HF API URL listing the repo tree (JSON array of
+ * {"path":..,"type":..,"size":..}), recursive. */
+size_t inf_hf_api_url (const char *hfurl, char *out, size_t outsz);
+
+/* inf_hf_resolve_url: the download URL of one PATH of the repo
+ * (huggingface.co resolve endpoint, redirects followed by httpfs). */
+size_t inf_hf_resolve_url (const char *hfurl, const char *path,
+                           char *out, size_t outsz);
+
+/* --- JSON array helpers (for the HF tree API) -------------------------
+ * inf_json_array_count: number of elements of the top-level array.
+ * inf_json_array_object: copy the IDX-th element (object or scalar) of
+ * the top-level array into OUT; returns the length written (0 when IDX
+ * is out of range). */
+size_t inf_json_array_count (const char *json);
+size_t inf_json_array_object (const char *json, size_t idx,
+                              char *out, size_t outsz);
+
+/* inf_training_search_list: like inf_training_search but collects up to
+ * MAX_HITS matching lines (newline-joined) into OUT; returns the number
+ * of hits written.  Used by /db search. */
+size_t inf_training_search_list (const char *ndjson, const char *query,
+                                 char *out, size_t outsz, size_t max_hits);
 
 /* --- One-line machine usage (info line above the prompt) ------------ */
 /* inf_client_stats_line: compact single-line CPU/memory snapshot for

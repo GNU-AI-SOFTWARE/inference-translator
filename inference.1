@@ -193,6 +193,44 @@ sur /llm1..N, lecture de la sortie) puis enregistre la paire
 .IR training_data )
 et dans le cache local.
 .TP
+.BI /hf " list|sync " hf://...
+Dépose Hugging Face en HTTP pur via httpfs (l'hôte huggingface.co est
+ajouté à /etc/hosts automatiquement) :
+.RS
+.TP
+.B list
+liste l'arbre du dépôt (API tree, récursif).
+.TP
+.B sync " " hf://... " " dossier-local
+télécharge chaque fichier vers le dossier local (ex.
+.IR /hf sync hf://buckets/clairemariecoralie/cyber-security-bucket ./local )
+puis le convertit en enregistrements
+.I /db
+(table
+.IR training_data )
+et dans le cache local.  Formes acceptées :
+.IR hf://buckets/<owner>/<bucket>[/prefix] ,
+.IR hf://datasets/<owner>/<ds>[/prefix] ,
+.IR hf://models/<owner>/<model>[/prefix] .
+.RE
+.TP
+.BI /db " status|search|list|count"
+Explore la base :
+.B status
+écrit
+.I {"status": true}
+sur
+.I /db
+et affiche la réponse ;
+.BR search " MOT..."
+liste les enregistrements d'entraînement correspondants (cache local, miroir
+de
+.IR training_data ) ;
+.BR list " [N]"
+les N derniers enregistrements ;
+.B count
+le nombre d'enregistrements.
+.TP
 .B /help
 Affiche l'aide intégrée (commandes, tâches, édition, nœuds).
 .TP
