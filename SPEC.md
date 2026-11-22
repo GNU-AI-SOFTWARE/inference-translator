@@ -285,7 +285,7 @@ verrou en phase 1.
 gcc -std=c23 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
     -Iinclude -o /tmp/test_fs tests/test_fs.c \
     src/contract.c src/expr.c src/actions.c src/spinner.c src/fs.c
-/tmp/test_fs                        # 27/27 OK
+/tmp/test_fs                        # 29/29 OK
 ./autogen.sh && ./configure && make && make check   # + test_posix.sh sur Hurd monté
 # Sur GNU/Hurd, translator réellement monté :
 settrans -a /inference inference-translator
@@ -329,8 +329,9 @@ faux arbre).
 ```sh
 gcc -std=c23 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
     -Iinclude -o /tmp/test_client tests/test_client.c \
-    src/contract.c src/expr.c src/actions.c src/spinner.c src/fs.c src/client-core.c
-/tmp/test_client                    # cœur pur du client (20/20)
+    src/contract.c src/expr.c src/actions.c src/spinner.c src/fs.c src/client-core.c \
+    src/training.c src/text.c src/stats.c src/jsonlite.c src/history.c
+/tmp/test_client                    # cœur pur du client (70/70)
 ./autogen.sh && ./configure && make && make check   # + test_client.sh (pty via script(1))
 sh tests/test_client.sh src/inference
 # Sur GNU/Hurd avec le translator monté, en interactif (console série) :
