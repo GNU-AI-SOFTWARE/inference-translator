@@ -99,6 +99,17 @@ par un bump de `version`.
 
 ### Corrigé
 
+- **Mémoire affichée à 100 % sur Hurd** : les pages `inactive` de Mach sont
+  désormais comptabilisées comme disponibles (`free_count + inactive_count`)
+  dans `/stats` **et** dans la ligne d'information au-dessus du prompt.
+- **Narration des chemins absolus** (`/sigmoid`, `/entrainement` sur
+  `/llmN`) : `narrate()` préfixait `g_mount` (`→ read /inference//llm1`) ;
+  nouvelle helper `narrate_path()` pour les chemins hors montage.
+- **DNS auto** : quand `getent` échoue et que `/etc/resolv.conf` n'a aucun
+  `nameserver` (VM QEMU user-net), le client ajoute `nameserver 10.0.2.3`
+  puis réessaie avant de renoncer (avec une indication explicite).
+- **`/db count`** interroge aussi le vrai compteur `training_data` du
+  translator `/db` (instruction `{"status": true}`), en plus du cache local.
 - **`INF_JSON_MAX`** : dimensionné depuis `INF_PROMPT_MAX`
   (`12 * INF_PROMPT_MAX + 64`) au lieu d'un 8192 fixe — le JSON rendu dans
   `/inference/request` n'est plus tronqué (JSON invalide) quand le prompt
