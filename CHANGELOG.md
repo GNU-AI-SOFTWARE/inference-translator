@@ -56,6 +56,25 @@ par un bump de `version`.
   `/learn-code` `/watch` `/history` `/uptime`, flèches haut/bas,
   variables `INFERENCE_DB`/`INFERENCE_ORCH`/`INFERENCE_HISTORY`).
 
+### Corrigé
+
+- **`INF_JSON_MAX`** : dimensionné depuis `INF_PROMPT_MAX`
+  (`12 * INF_PROMPT_MAX + 64`) au lieu d'un 8192 fixe — le JSON rendu dans
+  `/inference/request` n'est plus tronqué (JSON invalide) quand le prompt
+  est long.
+
+### Modifié
+
+- **Découpage en modules** (un module logique par fichier) :
+  `src/client-core.c` → `client-core.c` + `training.c` + `text.c` +
+  `stats.c` + `jsonlite.c` + `history.c` ; `src/client.c` → `client.c` +
+  `nodeio.c` + `cmds.c` ; internes partagés dans `src/client_internal.h`.
+  `src/Makefile.am` archive tout le cœur pur dans `libinfcore.a`
+  (`contract.c expr.c actions.c spinner.c fs.c client-core.c training.c
+  text.c stats.c jsonlite.c history.c`) ; les lignes de compilation
+  manuelles de `SPEC.md` (section 9, 11, 12) ont été mises à jour en
+  conséquence.
+
 ## [0.1.0] — 2026-11-20
 
 Première version publique (GNU AI 0.1.0).
