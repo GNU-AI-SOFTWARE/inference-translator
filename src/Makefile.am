@@ -12,14 +12,15 @@ bin_PROGRAMS = inference-translator inference
 # C23/POSIX with no external dependency.  The library is shared by the
 # binary and the test suite.
 noinst_LIBRARIES = libinfcore.a
-libinfcore_a_SOURCES = contract.c expr.c actions.c spinner.c fs.c client-core.c
+libinfcore_a_SOURCES = contract.c expr.c actions.c spinner.c fs.c \
+    client-core.c training.c text.c stats.c jsonlite.c history.c
 
 # --- The phase 2 client `inference` ---------------------------------
 #
 # Pure POSIX (termios + ANSI, no TUI library): it talks to the mount
 # point through plain open/read/write and works on any host, Hurd or
 # not (the tests point it at a fake tree with --mount).
-inference_SOURCES = client.c
+inference_SOURCES = client.c nodeio.c cmds.c
 inference_CPPFLAGS = $(AM_CPPFLAGS)
 inference_LDADD = libinfcore.a
 
@@ -29,7 +30,7 @@ inference_CPPFLAGS += -DON_HURD
 inference_LDADD += -lmachuser -lpthread
 endif
 
-noinst_HEADERS = translator.h
+noinst_HEADERS = translator.h client_internal.h
 
 # --- The binary face, per host -----------------------------------------
 #
