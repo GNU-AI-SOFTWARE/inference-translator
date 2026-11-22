@@ -421,6 +421,14 @@ size_t inf_training_search (const char *ndjson, const char *query,
 size_t inf_reply_prompt (char *out, size_t outsz, const char *query,
                          const char *context);
 
+/* inf_training_filter_new: copy the lines of NEW_NDJSON whose "checksum"
+ * field does not occur in EXISTING_NDJSON into OUT (bounded, NUL-terminated);
+ * returns the length written.  Used by /db sync to merge /db records into
+ * the local cache without duplicating checksums. */
+size_t inf_training_filter_new (char *out, size_t outsz,
+                                const char *new_ndjson,
+                                const char *existing_ndjson);
+
 /* --- /hf: Hugging Face buckets/datasets over plain HTTP --------------
  *
  * inf_hf_url: true for hf://... URLs (handled by /hf and /entrainement). */
