@@ -240,8 +240,16 @@ et dans le cache local.  Formes acceptées :
 .IR hf://models/<owner>/<model>[/prefix] .
 .RE
 .TP
-.BI /db " status|search|list|count"
-Explore la base :
+.BI /db " status|search|list|count|sync"
+Explore la base (lue en priorité depuis
+.I /db
+quand il est monté : nœud
+.IR /db/training_data ,
+protocole
+.I select
+, ou
+.BR psql (1)
+en repli ; le cache local NDJSON sert de secours) :
 .B status
 écrit
 .I {"status": true}
@@ -256,6 +264,14 @@ de
 les N derniers enregistrements ;
 .B count
 le nombre d'enregistrements.
+.TP
+.B sync
+recopie les enregistrements
+.I training_data
+de
+.I /db
+dans le cache local (dédupliqués par
+.IR checksum ).
 .TP
 .B /help
 Affiche l'aide intégrée (commandes, tâches, édition, nœuds).

@@ -233,6 +233,53 @@ inf_reply_prompt (char *out, size_t outsz, const char *query,
     return (size_t) n >= outsz ? outsz - 1 : (size_t) n;
 }
 
+/* inf_training_filter_new: copy the lines of NEW whose "checksum" field
+   does not occur in EXISTING into OUT (bounded, NUL-terminated). */
+size_t
+inf_training_filter_new (char *out, size_t outsz, const char *new_ndjson,
+                         const char *existing_ndjson)
+{
+    if (out == NULL || outsz == 0)
+        return 0;
+    out[0] = '\0';
+    if (new_ndjson == NULL)
+        return 0;
+    size_t w = 0;
+    const char *p = new_ndjson;
+    while (*p != '\0')
+      {
+        const char *eol = strchr (p, '\n');
+        size_t llen = eol != NULL ? (size_t) (eol - p) : strlen (p);
+        if (llen > 0)
+          {
+            char line[300000];
+            if (llen < sizeof line)
+              {
+                memcpy (line, p, llen);
+                line[llen] = '\0';
+                char cs[65] = "";
+                bool dup = false;
+                if (inf_json_str_field (line, "checksum", cs, sizeof cs) == 0
+                    && cs[0] != '\0' && existing_ndjson != NULL)
+                  {
+                    char needle[80];
+                    snprintf (needle, sizeof needle, "\"checksum\":\"%s\"", cs);
+                    dup = strstr (existing_ndjson, needle) != NULL;
+                  }
+                if (!dup && w + llen + 1 < outsz)
+                  {
+                    memcpy (out + w, line, llen);
+                    w += llen;
+                    out[w++] = '\n';
+                  }
+              }
+          }
+        p = eol != NULL ? eol + 1 : p + llen;
+      }
+    out[w] = '\0';
+    return w;
+}
+
 size_t
 inf_training_search_list (const char *ndjson, const char *query,
                           char *out, size_t outsz, size_t max_hits)

@@ -31,7 +31,7 @@ const struct inf_action inf_actions[] =
     { "/sigmoid", "visualiser l'état des neurones montés (/llmN) après sigmoïde" },
     { "/entrainement", "remplir /db avec les données d'une URL ou hf://…, passées par le neuron-translator" },
     { "/hf", "hf://buckets/... : lister (list) ou synchroniser (sync) un bucket/dataset HF vers un dossier local, puis ingérer dans /db" },
-    { "/db", "explorer la base : /db status | /db search MOT | /db list [N] | /db count" },
+    { "/db", "base en source de vérité : /db status|search MOT|list [N]|count lisent /db d'abord, /db sync recopie /db dans le cache" },
 };
 
 const size_t inf_actions_count =

@@ -937,6 +937,9 @@ training_cache_append (const char *rec)
    here so /reply can reuse the neuron probe (/llm1..N). */
 #define REPLY_VEC_MAX 64
 static int collect_neurons (char llms[][32], int *nllm, unsigned *in_size);
+/* defined with the /db commands below; used by /reply so the training
+   records come from /db first, the local cache as fallback. */
+static ssize_t db_source (char *buf, size_t bufsz);
 
 void
 cmd_reply (const char *arg)
@@ -947,25 +950,15 @@ cmd_reply (const char *arg)
         printf ("  usage: /reply [question] — sinon le prompt courant sert de question\n");
         return;
       }
-    if (g_training_cache == NULL || g_training_cache[0] == '\0')
-      {
-        printf ("  cache d'entraînement non configuré\n");
-        return;
-      }
-    int fd = open (g_training_cache, O_RDONLY);
-    if (fd < 0)
-      {
-        printf ("  aucune donnée d'entraînement (cache %s illisible : %s)\n"
-                "  apprenez d'abord : /learn URL  ou  /entrainement URL\n",
-                g_training_cache, strerror (errno));
-        return;
-      }
     static char cache[4 * 1024 * 1024];
-    ssize_t n = read (fd, cache, sizeof cache - 1);
-    close (fd);
+    ssize_t n = db_source (cache, sizeof cache);
     if (n <= 0)
-        n = 0;
-    cache[n] = '\0';
+      {
+        printf ("  aucune donnée d'entraînement (/db illisible et cache %s vide)\n"
+                "  apprenez d'abord : /learn URL, /entrainement URL, /db sync\n",
+                g_training_cache != NULL ? g_training_cache : "?");
+        return;
+      }
 
     char best[300000];
     if (inf_training_search (cache, query, best, sizeof best) == 0)
@@ -1659,11 +1652,82 @@ load_training_cache (char *buf, size_t bufsz)
     return n;
 }
 
+/* db_load_records — load training_data records from /db into BUF as
+   NDJSON lines (one JSON object per line, each with a "content" field):
+   1. the /db/training_data node (data-base netfs, phase 2+);
+   2. the {"select": …} line protocol on /db (phase 2);
+   3. psql(1) when available (a phase 1 /db serves no reads).
+   Returns the length written, or -1 when /db is unreachable or serves
+   nothing usable (the caller then falls back to the local cache). */
+static ssize_t
+db_load_records (char *buf, size_t bufsz)
+{
+    char path[256];
+    snprintf (path, sizeof path, "%s/training_data", g_db);
+    ssize_t n = read_root (path, buf, bufsz - 1);
+    if (n >= 0)
+      {
+        buf[n] = '\0';
+        if (strchr (buf, '{') != NULL)
+            return n;
+      }
+    const char *req = "{\"select\":{\"table\":\"training_data\",\"limit\":100000}}";
+    if (write_root_line (g_db, req, strlen (req)) == 0)
+      {
+        n = read_root (g_db, buf, bufsz - 1);
+        if (n > 0)
+          {
+            buf[n] = '\0';
+            if (strstr (buf, "content") != NULL)
+                return n;
+          }
+      }
+    const char *dbn = getenv ("INFERENCE_PSQL_DB");
+    if (dbn == NULL || *dbn == '\0')
+        dbn = "gnuai";
+    char cmd[320];
+    snprintf (cmd, sizeof cmd,
+              "psql -d %s -tA -c \"select row_to_json(t) from training_data t "
+              "order by id\" 2>/dev/null", dbn);
+    FILE *pp = popen (cmd, "r");
+    if (pp == NULL)
+        return -1;
+    size_t w = 0;
+    char line[300000];
+    while (w + 1 < bufsz && fgets (line, sizeof line, pp) != NULL)
+      {
+        size_t l = strlen (line);
+        if (l > 0 && line[l - 1] == '\n')
+            l--;
+        if (l == 0 || strchr (line, '{') == NULL)
+            continue;
+        if (w + l + 1 >= bufsz)
+            break;
+        memcpy (buf + w, line, l);
+        w += l;
+        buf[w++] = '\n';
+      }
+    pclose (pp);
+    buf[w] = '\0';
+    return w > 0 ? (ssize_t) w : -1;
+}
+
+/* db_source — the training records behind /reply and /db search|list:
+   /db first (source of truth), the local NDJSON cache as fallback. */
+static ssize_t
+db_source (char *buf, size_t bufsz)
+{
+    ssize_t n = db_load_records (buf, bufsz);
+    if (n > 0)
+        return n;
+    return load_training_cache (buf, bufsz);
+}
+
 static void
 db_search (const char *query)
 {
     static char cache[4 * 1024 * 1024];
-    if (load_training_cache (cache, sizeof cache) <= 0)
+    if (db_source (cache, sizeof cache) <= 0)
       {
         printf ("  cache d'entraînement vide (%s) — /learn, /entrainement "
                 "ou /hf sync d'abord\n",
@@ -1695,7 +1759,7 @@ static void
 db_list (const char *nstr)
 {
     static char cache[4 * 1024 * 1024];
-    if (load_training_cache (cache, sizeof cache) <= 0)
+    if (db_source (cache, sizeof cache) <= 0)
       {
         printf ("  cache vide (%s)\n",
                 g_training_cache != NULL ? g_training_cache : "?");
@@ -1757,6 +1821,46 @@ cmd_db (const char *arg)
       }
     else if (strcmp (sub, "list") == 0)
         db_list (rest);
+    else if (strcmp (sub, "sync") == 0)
+      {
+        /* pull the training_data records from /db into the local cache,
+           skipping checksums already present (anti-duplicate) */
+        static char recs[4 * 1024 * 1024];
+        ssize_t n = db_load_records (recs, sizeof recs);
+        if (n <= 0)
+          {
+            printf ("  /db ne sert aucune lecture ici (phase 1) et psql est indisponible\n"
+                    "  compteur direct : psql -d gnuai -tAc 'select count(*) from training_data'\n");
+            return;
+          }
+        static char existing[4 * 1024 * 1024];
+        ssize_t en = load_training_cache (existing, sizeof existing);
+        if (en < 0)
+          {
+            en = 0;
+            existing[0] = '\0';
+          }
+        static char fresh[4 * 1024 * 1024];
+        size_t fl = inf_training_filter_new (fresh, sizeof fresh, recs,
+                                             existing);
+        size_t added = 0;
+        for (const char *p = fresh; *p != '\0'; p++)
+            if (*p == '\n')
+                added++;
+        if (added > 0 && g_training_cache != NULL && g_training_cache[0] != '\0')
+          {
+            int fd = open (g_training_cache, O_WRONLY | O_CREAT | O_APPEND,
+                           0600);
+            if (fd >= 0)
+              {
+                if (write (fd, fresh, fl) != (ssize_t) fl)
+                    printf ("  avertissement : append partiel du cache\n");
+                close (fd);
+              }
+          }
+        printf ("  /db sync : %zu nouvel(s) enregistrement(s) ajout\u00e9(s) au cache %s\n",
+                added, g_training_cache != NULL ? g_training_cache : "?");
+      }
     else if (strcmp (sub, "count") == 0)
       {
         /* real counter from the db translator when mounted */
@@ -1784,7 +1888,7 @@ cmd_db (const char *arg)
                 total);
       }
     else
-        printf ("  usage: /db status | /db search MOT... | /db list [N] | /db count\n");
+        printf ("  usage: /db status | /db search MOT... | /db list [N] | /db count | /db sync\n");
 }
 
 /* hf_train — /entrainement hf://... [dir]: download every file of the

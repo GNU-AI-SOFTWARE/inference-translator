@@ -574,6 +574,17 @@ main (void)
     check ("inf_vector_to_text empty vector -> empty string",
            inf_vector_to_text (dtxt, sizeof dtxt, NULL, 0) == 0
            && dtxt[0] == '\0');
+    const char *exnd = "{\"checksum\":\"aa\",\"content\":\"x\"}\n"
+                       "{\"checksum\":\"cc\",\"content\":\"y\"}\n";
+    const char *nwend = "{\"checksum\":\"aa\",\"content\":\"dup\"}\n"
+                        "{\"checksum\":\"bb\",\"content\":\"new\"}\n";
+    char fo[512];
+    size_t fl2 = inf_training_filter_new (fo, sizeof fo, nwend, exnd);
+    check ("inf_training_filter_new skips existing checksums",
+           fl2 > 0 && strstr (fo, "\"bb\"") != NULL
+           && strstr (fo, "\"aa\"") == NULL);
+    check ("inf_training_filter_new is bounded",
+           inf_training_filter_new (fo, 10, nwend, exnd) == 0 && fo[0] == '\0');
 
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
