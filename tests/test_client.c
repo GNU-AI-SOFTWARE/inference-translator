@@ -332,6 +332,31 @@ main (void)
            && inf_hf_path_match ("adversarial-ml.json", "adversarial-ml.json")
            && !inf_hf_path_match ("dir", "other/a.txt")
            && !inf_hf_path_match ("dir", NULL));
+    char next[2048];
+    check ("hf link next url extracted (tree pagination, 1000/page)",
+           inf_hf_link_next ("HTTP/1.1 200 OK\r\nLink: <https://huggingface.co/api/buckets/o/b/tree?recursive=true&cursor=abc123>; rel=\"next\", <https://huggingface.co/x>; rel=\"first\"\r\n\r\n",
+                            next, sizeof next) > 0
+           && strcmp (next, "https://huggingface.co/api/buckets/o/b/tree?recursive=true&cursor=abc123") == 0);
+    check ("hf link next absent or malformed -> 0",
+           inf_hf_link_next ("Link: <https://x>; rel=\"prev\"", next, sizeof next) == 0
+           && inf_hf_link_next ("Link: <https://x>; rel=next2", next, sizeof next) == 0
+           && inf_hf_link_next (NULL, next, sizeof next) == 0);
+    char *acc = malloc (2);
+    size_t alen = 1, acap = 2;
+    if (acc != NULL)
+      {
+        acc[0] = '[';
+        acc[1] = '\0';
+      }
+    check ("hf array merge joins paginated listings",
+           acc != NULL
+           && inf_hf_array_merge (&acc, &alen, &acap, "[{\"path\":\"a\"},{\"path\":\"b\"}]") != 0
+           && inf_hf_array_merge (&acc, &alen, &acap, "[]") != 0
+           && inf_hf_array_merge (&acc, &alen, &acap, " [{\"path\":\"c\"}] ") != 0
+           && strcmp (acc, "[{\"path\":\"a\"},{\"path\":\"b\"},{\"path\":\"c\"}]") == 0
+           && inf_hf_array_merge (&acc, &alen, &acap, "{\"error\":1}") == 0
+           && strcmp (acc, "[{\"path\":\"a\"},{\"path\":\"b\"},{\"path\":\"c\"}]") == 0);
+    free (acc);
 
     /* --- JSON array helpers (HF tree API) -------------------------------- */
 

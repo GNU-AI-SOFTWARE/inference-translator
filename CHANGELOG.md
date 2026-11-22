@@ -110,6 +110,15 @@ par un bump de `version`.
   `/tree/main` et `/resolve/main`). Le paramètre `prefix` étant ignoré par
   l'endpoint bucket, le filtrage de sous-chemin est appliqué côté client
   (`inf_hf_path_match`) dans `/hf list`, `/hf sync` et `/entrainement hf://…`.
+- **`/page` « Device or resource busy » entre deux fetchs consécutifs** :
+  le remount de `httpfs` sur `/page` fait désormais `settrans -g -f` puis
+  jusqu'à 6 tentatives de `settrans -a` (sur Hurd, la suppression de
+  l'ancien translator peut laguer d'un instant).
+- **Listings HF tronqués à 1000 entrées** : l'API tree pagine à 1000
+  entrées par page avec un curseur `Link: rel="next"` — `/hf list`,
+  `/hf sync` et `/entrainement hf://…` suivent désormais toutes les pages
+  (`inf_hf_link_next` + `inf_hf_array_merge` ; tampon de lecture porté à
+  4 Mo, une page fait ~200 Ko).
 - **Narration des chemins absolus** (`/sigmoid`, `/entrainement` sur
   `/llmN`) : `narrate()` préfixait `g_mount` (`→ read /inference//llm1`) ;
   nouvelle helper `narrate_path()` pour les chemins hors montage.

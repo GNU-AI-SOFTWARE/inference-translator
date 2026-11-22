@@ -346,7 +346,10 @@ faux arbre).
     (sans `/main`, qui répond `[]`) et le téléchargement via
     `…/buckets/<o>/<r>/resolve/<path>` (sans `/main`, qui 404) ; le `prefix`
     étant ignoré côté serveur pour les buckets, le filtrage de sous-chemin est
-    appliqué côté client (`inf_hf_path_match`) ;
+    appliqué côté client (`inf_hf_path_match`) ; l'API tree pagine à 1000
+    entrées par page, donc `/hf list`, `/hf sync` et `/entrainement hf://…`
+    suivent le curseur `Link: rel="next"` (`inf_hf_link_next`) et fusionnent
+    les pages en un seul tableau (`inf_hf_array_merge`) ;
   - `/db status|search MOT|list [N]|count` : exploration de la base —
     `status` écrit `{"status": true}` sur `/db` et affiche la réponse ;
     `search`/`list`/`count` parcourent le cache local (miroir NDJSON de
@@ -369,7 +372,7 @@ gcc -std=c23 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
     -Iinclude -o /tmp/test_client tests/test_client.c \
     src/contract.c src/expr.c src/actions.c src/spinner.c src/fs.c src/client-core.c \
     src/training.c src/text.c src/stats.c src/jsonlite.c src/history.c src/neuron.c -lm
-/tmp/test_client                    # cœur pur du client (109/109)
+/tmp/test_client                    # cœur pur du client (112/112)
 ./autogen.sh && ./configure && make && make check   # + test_client.sh (pty via script(1))
 sh tests/test_client.sh src/inference
 # Sur GNU/Hurd avec le translator monté, en interactif (console série) :
