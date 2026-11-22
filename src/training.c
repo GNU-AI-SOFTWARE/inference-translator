@@ -301,15 +301,21 @@ inf_hf_api_url (const char *hfurl, char *out, size_t outsz)
     if (!inf_hf_parse (hfurl, kind, sizeof kind, owner, sizeof owner,
                        repo, sizeof repo, path, sizeof path))
         return 0;
-    const char *base = "https://huggingface.co/api/%s/%s/%s/tree/main?recursive=true";
     char url[2048];
     int n;
     if (strcmp (kind, "buckets") == 0)
-        n = snprintf (url, sizeof url, base, "buckets", owner, repo);
-    else if (strcmp (kind, "datasets") == 0)
-        n = snprintf (url, sizeof url, base, "datasets", owner, repo);
+        /* buckets are revision-less: /tree/main answers [] on buckets */
+        n = snprintf (url, sizeof url,
+                      "https://huggingface.co/api/buckets/%s/%s/tree?recursive=true",
+                      owner, repo);
     else
-        n = snprintf (url, sizeof url, base, "models", owner, repo);
+      {
+        const char *base = "https://huggingface.co/api/%s/%s/%s/tree/main?recursive=true";
+        if (strcmp (kind, "datasets") == 0)
+            n = snprintf (url, sizeof url, base, "datasets", owner, repo);
+        else
+            n = snprintf (url, sizeof url, base, "models", owner, repo);
+      }
     if (n < 0 || (size_t) n >= sizeof url)
         return 0;
     if (path[0] != '\0')
@@ -343,7 +349,8 @@ inf_hf_resolve_url (const char *hfurl, const char *path, char *out,
         return 0;
     const char *fmt;
     if (strcmp (kind, "buckets") == 0)
-        fmt = "https://huggingface.co/buckets/%s/%s/resolve/main/%s";
+        /* buckets are revision-less: resolve/<path>, not resolve/main/... */
+        fmt = "https://huggingface.co/buckets/%s/%s/resolve/%s";
     else if (strcmp (kind, "datasets") == 0)
         fmt = "https://huggingface.co/datasets/%s/%s/resolve/main/%s";
     else
@@ -357,6 +364,19 @@ inf_hf_resolve_url (const char *hfurl, const char *path, char *out,
     memcpy (out, url, (size_t) n);
     out[n] = '\0';
     return (size_t) n;
+}
+
+/* inf_hf_path_match — true when PREFIX is empty or PATH begins with it.
+   The bucket tree endpoint ignores the server-side prefix parameter, so
+   sub-path selection is applied client-side on the listed paths. */
+bool
+inf_hf_path_match (const char *prefix, const char *path)
+{
+    if (prefix == NULL || prefix[0] == '\0')
+        return true;
+    if (path == NULL)
+        return false;
+    return strncmp (path, prefix, strlen (prefix)) == 0;
 }
 
 /* --- JSON top-level array helpers (HF tree API) ------------------------ */

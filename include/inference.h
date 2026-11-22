@@ -421,6 +421,11 @@ size_t inf_hf_api_url (const char *hfurl, char *out, size_t outsz);
 size_t inf_hf_resolve_url (const char *hfurl, const char *path,
                            char *out, size_t outsz);
 
+/* inf_hf_path_match: true when PREFIX is empty or PATH begins with it.
+ * Buckets ignore the server-side prefix parameter, so sub-path selection
+ * is applied client-side on the listed paths. */
+bool inf_hf_path_match (const char *prefix, const char *path);
+
 /* --- JSON array helpers (for the HF tree API) -------------------------
  * inf_json_array_count: number of elements of the top-level array.
  * inf_json_array_object: copy the IDX-th element (object or scalar) of
