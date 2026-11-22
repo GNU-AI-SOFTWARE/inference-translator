@@ -17,6 +17,7 @@ extern bool g_tio_saved;
 extern const char *g_mount;
 extern const char *g_db;
 extern const char *g_orch;
+extern const char *g_training_cache;
 extern struct inf_history g_hist;
 extern char g_hist_path[4096];
 extern char g_hist_saved[INF_PROMPT_MAX];
@@ -57,5 +58,13 @@ void cmd_submit (void);
 void cmd_editor (void);
 void cmd_read_code (const char *arg);
 void cmd_learn_code (const char *arg);
+void cmd_reply (const char *arg);
+void cmd_sigmoid (void);
+void cmd_training (const char *arg);
+void db_store_and_report (const char *rec);
+
+/* Append one training record line to the local NDJSON cache used by
+ * /reply (best effort; returns 0 on success). */
+int training_cache_append (const char *rec);
 
 #endif /* INF_CLIENT_INTERNAL_H */

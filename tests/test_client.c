@@ -173,6 +173,98 @@ main (void)
            && strstr (rec, "\"checksum\":\"") != NULL
            && strstr (rec, "Hello \\\"world\\\"") != NULL);
 
+    /* --- new slash commands parse ------------------------------------ */
+
+    check ("/reply parses", inf_client_parse_command ("/reply despotisme ?",
+           arg, sizeof arg) == INF_CMD_REPLY
+           && strcmp (arg, "despotisme ?") == 0);
+    check ("/sigmoid parses", inf_client_parse_command ("/sigmoid", arg,
+           sizeof arg) == INF_CMD_SIGMOID);
+    check ("/entrainement parses with URL arg",
+           inf_client_parse_command ("/entrainement https://huggingface.co/datasets",
+                                    arg, sizeof arg) == INF_CMD_TRAINING
+           && strcmp (arg, "https://huggingface.co/datasets") == 0);
+
+    /* --- auto-DNS helpers (inf_url_host / inf_hosts_has) ------------- */
+
+    char host[256];
+    check ("url host extracted",
+           inf_url_host ("https://fr.wikipedia.org/wiki/X", host,
+                         sizeof host)
+           && strcmp (host, "fr.wikipedia.org") == 0);
+    check ("url host with port stripped",
+           inf_url_host ("http://example.org:8080/a", host, sizeof host)
+           && strcmp (host, "example.org") == 0);
+    check ("url host rejects non-URL",
+           !inf_url_host ("notaurl", host, sizeof host));
+    check ("hosts has mapped name",
+           inf_hosts_has ("127.0.0.1 localhost\n10.0.2.2 gateway gw\n",
+                          "gateway"));
+    check ("hosts has mapped address too",
+           inf_hosts_has ("127.0.0.1 localhost\n", "127.0.0.1"));
+    check ("hosts ignores comments and misses",
+           !inf_hosts_has ("# 10.0.0.1 evil\n127.0.0.1 localhost\n",
+                           "evil")
+           && !inf_hosts_has ("127.0.0.1 localhost\n", "example.org"));
+
+    /* --- neuron module: sigmoid, output parse, vector ----------------- */
+
+    check ("sigmoid(0) == 0.5", inf_sigmoid (0.0) == 0.5);
+    check ("sigmoid bounds", inf_sigmoid (1e9) == 1.0
+           && inf_sigmoid (-1e9) == 0.0);
+    double vals[8];
+    size_t nv = 0;
+    const char *ntext = "LLM Sigmoid Neuron Translator\nNetwork: 3 layers\n"
+                        "Output:\n  [0]: 0.500000\n  [1]: -1.250000\n"
+                        "\nStatistics:\n  Forward Passes: 1\n";
+    inf_parse_neuron_output (ntext, vals, 8, &nv);
+    check ("neuron output parsed (2 values)", nv == 2
+           && vals[0] == 0.5 && vals[1] == -1.25);
+    check ("neuron output absent section -> 0",
+           inf_parse_neuron_output ("no output here", vals, 8, &nv) == 0
+           && nv == 0);
+    inf_parse_neuron_output (ntext, vals, 8, &nv);
+    char sblock[1024];
+    size_t sl = inf_sigmoid_render (sblock, sizeof sblock, "/llm1", vals, nv,
+                                    false);
+    check ("sigmoid render has one line per output",
+           sl > 0 && strstr (sblock, "/llm1 [0]") != NULL
+           && strstr (sblock, "/llm1 [1]") != NULL
+           && strstr (sblock, "sig=0.6225") != NULL);
+    double vec[16];
+    inf_text_to_vector ("hello", vec, 16);
+    double vsum = 0.0;
+    for (int i = 0; i < 16; i++)
+        vsum += vec[i];
+    check ("text vector normalized (sum ~ 1)", vsum > 0.99 && vsum < 1.01);
+    double vec2[16];
+    inf_text_to_vector ("hello", vec2, 16);
+    check ("text vector deterministic",
+           memcmp (vec, vec2, sizeof vec) == 0);
+
+    /* --- /reply: training search over the NDJSON cache ----------------- */
+
+    const char *tcache =
+        "{\"table\":\"training_data\",\"row\":{\"source_url\":\"https://a\","
+        "\"content\":\"le despotisme est un régime autoritaire\",\"checksum\":\"aa\"}}\n"
+        "{\"table\":\"training_data\",\"row\":{\"source_url\":\"https://b\","
+        "\"content\":\"{\\\"input\\\":\\\"q\\\",\\\"output\\\":[0.5,0.25],\\\"neuron\\\":\\\"/llm1\\\"}\","
+        "\"checksum\":\"bb\"}}\n";
+    char best[4096];
+    size_t bl = inf_training_search (tcache, "despotisme régime", best,
+                                      sizeof best);
+    check ("training search finds the matching record",
+           bl > 0 && strstr (best, "despotisme") != NULL);
+    check ("training search no match -> 0",
+           inf_training_search (tcache, "zzzzqqqq", best, sizeof best) == 0);
+
+    /* --- one-line machine usage ----------------------------------------- */
+
+    char sline[256];
+    size_t sn = inf_client_stats_line (sline, sizeof sline);
+    check ("stats line rendered", sn > 0 && strstr (sline, "CPU") != NULL
+           && strstr (sline, "MEM") != NULL);
+
     char larg[256];
     check ("/learn parses as a command with its URL argument",
            inf_client_parse_command ("/learn https://example.org",

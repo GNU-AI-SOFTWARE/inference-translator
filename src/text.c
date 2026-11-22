@@ -391,6 +391,68 @@ inf_url_valid (const char *url)
     return true;
 }
 
+/* --- URL host extraction + /etc/hosts lookup (auto-DNS) --------------- */
+
+bool
+inf_url_host (const char *url, char *host, size_t hostsz)
+{
+    if (url == NULL || host == NULL || hostsz == 0)
+        return false;
+    size_t off = 0;
+    if (strncmp (url, "https://", 8) == 0)
+        off = 8;
+    else if (strncmp (url, "http://", 7) == 0)
+        off = 7;
+    else
+        return false;
+    size_t n = 0;
+    for (size_t i = off; url[i] != '\0' && url[i] != '/' && url[i] != ':'
+         && url[i] != '?' && url[i] != '#'; i++)
+      {
+        if (n + 1 >= hostsz)
+            return false;
+        host[n++] = url[i];
+      }
+    host[n] = '\0';
+    return n > 0;
+}
+
+bool
+inf_hosts_has (const char *hosts_text, const char *host)
+{
+    if (hosts_text == NULL || host == NULL || *host == '\0')
+        return false;
+    size_t hlen = strlen (host);
+    const char *p = hosts_text;
+    while (*p != '\0')
+      {
+        const char *eol = strchr (p, '\n');
+        size_t llen = eol != NULL ? (size_t) (eol - p) : strlen (p);
+        /* skip comments and blank lines */
+        const char *q = p;
+        while (q < p + llen && (*q == ' ' || *q == '\t'))
+            q++;
+        if (q < p + llen && *q != '#')
+          {
+            /* fields: first is the address, the rest are names */
+            const char *f = q;
+            while (f < p + llen)
+              {
+                while (f < p + llen && (*f == ' ' || *f == '\t'))
+                    f++;
+                const char *fs = f;
+                while (f < p + llen && *f != ' ' && *f != '\t')
+                    f++;
+                size_t flen = (size_t) (f - fs);
+                if (flen == hlen && strncmp (fs, host, hlen) == 0)
+                    return true;
+              }
+          }
+        p = eol != NULL ? eol + 1 : p + llen;
+      }
+    return false;
+}
+
 /* --- phase 3: syntax highlighting (SPEC.md section 6) --------------- */
 
 #define HL_PUT(str)                                                     \

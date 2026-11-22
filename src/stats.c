@@ -234,3 +234,84 @@ inf_client_stats (char *out, size_t outsz)
     out[outsz - 1] = '\0';
     return (size_t) (p - out);
 }
+
+/* inf_client_stats_line: compact one-line snapshot for the persistent
+ * info line above the prompt: "CPU 12.3 % | MEM 456/2048 Mio (22.3 %)".
+ * Same sources as inf_client_stats, single line, bounded. */
+size_t
+inf_client_stats_line (char *out, size_t outsz)
+{
+    if (out == NULL || outsz == 0)
+        return 0;
+#ifdef ON_HURD
+    {
+        static unsigned long prev_total, prev_idle;
+        mach_port_t host = mach_host_self ();
+        cpu_load_info_data_t info;
+        mach_msg_type_number_t count = HOST_CPU_LOAD_INFO_COUNT;
+        double cpu = -1.0;
+        if (host_statistics (host, HOST_CPU_LOAD_INFO,
+                             (host_info_t) &info, &count) == KERN_SUCCESS)
+          {
+            unsigned long total = 0, idle = info.cpu_ticks[CPU_STATE_IDLE];
+            for (int i = 0; i < CPU_STATE_MAX; i++)
+                total += info.cpu_ticks[i];
+            if (prev_total != 0 && total > prev_total)
+                cpu = 100.0 * (double) ((total - prev_total)
+                                         - (idle - prev_idle))
+                      / (double) (total - prev_total);
+            prev_total = total;
+            prev_idle = idle;
+          }
+        host_basic_info_data_t basic;
+        unsigned int ps = 0;
+        unsigned long long used = 0, totalm = 0;
+        if (host_page_size (host, &ps) == KERN_SUCCESS
+            && host_info (host, HOST_BASIC_INFO, (host_info_t) &basic,
+                          &count) == KERN_SUCCESS)
+          {
+            totalm = basic.memory_size;
+            used = totalm;
+            vm_statistics64_data_t vm;
+            count = HOST_VM_INFO64_COUNT;
+            if (host_statistics64 (host, HOST_VM_INFO64,
+                                   (host_info64_t) &vm, &count)
+                == KERN_SUCCESS)
+                used = totalm - (unsigned long long) vm.free_count * ps;
+          }
+        int n;
+        if (cpu >= 0.0 && totalm > 0)
+            n = snprintf (out, outsz, "CPU %.1f %% | MEM %llu/%llu Mio (%.1f %%)",
+                          cpu, used >> 20, totalm >> 20,
+                          100.0 * (double) used / (double) totalm);
+        else if (totalm > 0)
+            n = snprintf (out, outsz, "CPU n/d | MEM %llu/%llu Mio (%.1f %%)",
+                          used >> 20, totalm >> 20,
+                          100.0 * (double) used / (double) totalm);
+        else
+            n = snprintf (out, outsz, "CPU n/d | MEM n/d");
+        return n < 0 ? 0 : (size_t) n;
+    }
+#else
+    {
+        double cpu = proc_cpu_pct ();
+        unsigned long long used, total;
+        proc_mem (&used, &total);
+        int n;
+        if (cpu >= 0.0 && total > 0)
+            n = snprintf (out, outsz,
+                          "CPU %.1f %% | MEM %llu/%llu Mio (%.1f %%)",
+                          cpu, used >> 10, total >> 10,
+                          100.0 * (double) used / (double) total);
+        else if (total > 0)
+            n = snprintf (out, outsz, "CPU n/d | MEM %llu/%llu Mio (%.1f %%)",
+                          used >> 10, total >> 10,
+                          100.0 * (double) used / (double) total);
+        else if (cpu >= 0.0)
+            n = snprintf (out, outsz, "CPU %.1f %% | MEM n/d", cpu);
+        else
+            n = snprintf (out, outsz, "CPU n/d | MEM n/d");
+        return n < 0 ? 0 : (size_t) n;
+    }
+#endif
+}

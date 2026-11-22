@@ -214,6 +214,9 @@ enum inf_client_cmd
     INF_CMD_WATCH,
     INF_CMD_HISTORY,
     INF_CMD_UPTIME,
+    INF_CMD_REPLY,
+    INF_CMD_SIGMOID,
+    INF_CMD_TRAINING,
     INF_CMD_UNKNOWN
 };
 
@@ -347,5 +350,57 @@ int inf_history_append (const char *path, const char *line);
  * "1m 05s", "1h 00m 00s", "1j 01h 01m 01s".  Bounded, NUL-terminated,
  * returns the length written. */
 size_t inf_format_uptime (char *out, size_t outsz, long seconds);
+
+/* --- URL host extraction + /etc/hosts helpers (auto-DNS) ------------
+ *
+ * inf_url_host: copy the host part of URL (after http:// or https://,
+ * up to '/', ':', '?' or the end) into HOST.  Returns false when there
+ * is no host.  A port is stripped (kept out of HOST). */
+bool inf_url_host (const char *url, char *host, size_t hostsz);
+
+/* inf_hosts_has: true when HOSTS_TEXT (an /etc/hosts file content)
+ * already maps HOST (a non-comment line whose field list contains the
+ * host, so "10.0.0.1 example.org www.example.org" matches both). */
+bool inf_hosts_has (const char *hosts_text, const char *host);
+
+/* --- Neuron module (src/neuron.c): sigmoid view + input vector -------
+ *
+ * inf_sigmoid: the classic 1/(1+e^-x), clamped input to avoid
+ * overflow. */
+double inf_sigmoid (double x);
+
+/* inf_parse_neuron_output: parse the "Output:" section of a neuron
+ * translator status text ("  [3]: 0.123456") into VALS.  Returns the
+ * number of values parsed (<= max); *n receives it. */
+size_t inf_parse_neuron_output (const char *text, double *vals,
+                                size_t max, size_t *n);
+
+/* inf_sigmoid_render: one text block visualizing the sigmoid state of
+ * N neuron outputs of LABEL (e.g. "/llm1"): one line per output with
+ * an ASCII bar.  Bounded, NUL-terminated, returns the length written. */
+size_t inf_sigmoid_render (char *out, size_t outsz, const char *label,
+                           const double *vals, size_t n, bool color);
+
+/* inf_text_to_vector: deterministic fixed-size input vector for the
+ * neuron translator: byte histogram of the first N buckets normalized
+ * to [0,1].  Returns n (always fills the whole vector). */
+size_t inf_text_to_vector (const char *text, double *out, size_t n);
+
+/* --- /reply: search the training cache -------------------------------
+ *
+ * inf_training_search: scan an NDJSON cache of training records (one
+ * JSON object per line, as written by /learn, /learn-code and
+ * /entrainement), score each record by the number of distinct query
+ * words found in its "content" field (case-insensitive), and copy the
+ * best matching LINE into OUT.  Returns the length written (0 when no
+ * record scores above zero). */
+size_t inf_training_search (const char *ndjson, const char *query,
+                            char *out, size_t outsz);
+
+/* --- One-line machine usage (info line above the prompt) ------------ */
+/* inf_client_stats_line: compact single-line CPU/memory snapshot for
+ * the persistent info line ("CPU 12.3 % | MEM 456/2048 Mio (22.3 %)"),
+ * bounded and NUL-terminated. */
+size_t inf_client_stats_line (char *out, size_t outsz);
 
 #endif /* INFERENCE_H */

@@ -52,6 +52,19 @@ Fichier d'historique des lignes de la session (défaut :
 .IR $HOME/.history ,
 ou la variable
 .BR INFERENCE_HISTORY ).
+.PP
+DNS automatique : à chaque URL passée à /fetch, /learn, /read-code,
+/learn-code ou /entrainement, si l'hôte n'est pas une IP littérale et
+n'est pas dans
+.I /etc/hosts,
+il est résolu une fois (getent) et ajouté à
+.I /etc/hosts
+(« IP hôte »), pour que httpfs atteigne la cible même sans DNS fonctionnel
+dans la VM.  Échec non fatal, simple message.
+.PP
+Ligne d'information : à chaque prompt, une ligne atténuée affiche
+l'utilisation machine courante (CPU, mémoire) entre la ligne de prompt
+et le reste de la fenêtre.
 .TP
 .B \-V ", " \-\-version
 Affiche la version et quitte.
@@ -156,6 +169,30 @@ Affiche la version du client, la version du translator (lue dans
 .IR <montage>/version )
 et l'uptime de la session client.
 .TP
+.BI /reply " [question]"
+Répond selon les données d'entraînement : recherche par mots-clés dans le
+cache local NDJSON ($INFERENCE_TRAINING, sinon $HOME/.inference-training.ndjson,
+rempli par /learn, /learn-code et /entrainement). Sans argument, le prompt
+courant sert de question. Les enregistrements /entrainement répondent par la
+sortie du neurone (champ
+.IR output ).
+.TP
+.B /sigmoid
+Visualise l'état des neurones montés (/llm1..N) : pour chaque sortie courante
+du neuron-translator, affiche la valeur brute, son activation sigmoïde et une
+barre ASCII.
+.TP
+.BI /entrainement " URL"
+Télécharge la page (dataset, ex. https://huggingface.co/datasets), la découpe
+en extraits, fait passer chaque extrait par le neuron-translator (écriture
+.IR input
+sur /llm1..N, lecture de la sortie) puis enregistre la paire
+{entrée, sortie du neurone} dans
+.I /db
+(table
+.IR training_data )
+et dans le cache local.
+.TP
 .B /help
 Affiche l'aide intégrée (commandes, tâches, édition, nœuds).
 .TP
@@ -223,6 +260,11 @@ Point de montage de l'orchestrateur (remplacé par
 .B INFERENCE_HISTORY
 Fichier d'historique (remplacé par
 .BR \-\-history ).
+.TP
+.B INFERENCE_TRAINING
+Cache NDJSON des données d'entraînement pour
+.BR /reply " (défaut :"
+.IR $HOME/.inference-training.ndjson ).
 .TP
 .B NO_COLOR
 Si définie et non vide, désactive les couleurs ANSI.

@@ -50,11 +50,36 @@ par un bump de `version`.
   `inf_history_*` testé (64/64, contrat 36/36 — 13 commandes).
 - **`/uptime`** (14e commande slash) : version du client, version du
   translator (lue dans `<montage>/version`) et uptime de la session ;
-  formateur pur `inf_format_uptime` testé (70/70, contrat 36/36 — 14
+  formateur pur `inf_format_uptime` testé (89/89, contrat 36/36 — 17
   commandes). Documentation à jour : `inference(1)` (options `--db`,
   `--orchestrate`, `--history`, commandes `/learn` `/read-code`
   `/learn-code` `/watch` `/history` `/uptime`, flèches haut/bas,
   variables `INFERENCE_DB`/`INFERENCE_ORCH`/`INFERENCE_HISTORY`).
+- **`/reply [question]`** (15e commande slash) : répond selon les données
+  d'entraînement — recherche par mots-clés (`inf_training_search`) dans le
+  cache local NDJSON (`$INFERENCE_TRAINING`, défaut
+  `$HOME/.inference-training.ndjson`), rempli par `/learn`, `/learn-code`
+  et `/entrainement` ; les enregistrements `/entrainement` répondent par la
+  sortie du neurone (champ `output`).
+- **`/sigmoid`** (16e commande) : visualise l'état des neurones montés
+  `/llm1..N` — sorties courantes lues sur chaque nœud, activation sigmoïde
+  et barre ASCII par sortie (`inf_parse_neuron_output`, `inf_sigmoid`,
+  `inf_sigmoid_render`, nouveau module `src/neuron.c`).
+- **`/entrainement URL`** (17e commande) : télécharge la page (ex.
+  `https://huggingface.co/datasets`), la découpe en extraits, fait passer
+  chaque extrait par le neuron-translator (`input` vectorisé
+  déterministiquement via `inf_text_to_vector`, lecture de la sortie), puis
+  enregistre `{input, output, neuron}` dans `/db` (`training_data`) et le
+  cache local.
+- **DNS automatique** : à chaque URL ajoutée (`/fetch`, `/learn`,
+  `/read-code`, `/learn-code`, `/entrainement`), l'hôte est extrait
+  (`inf_url_host`), et s'il n'est ni une IP littérale ni présent dans
+  `/etc/hosts` (`inf_hosts_has`), il y est ajouté après résolution `getent`
+  — httpfs atteint la cible même sans DNS fonctionnel dans la VM (le
+  « status HTTP: 0 » de `/learn` sur une VM sans DNS).
+- **Ligne d'information machine** : à chaque prompt, une ligne atténuée
+  `CPU … | MEM …` (`inf_client_stats_line`) s'affiche entre la ligne de
+  prompt et le reste de la fenêtre.
 
 ### Corrigé
 
