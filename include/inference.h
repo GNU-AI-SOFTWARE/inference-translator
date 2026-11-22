@@ -70,9 +70,15 @@ const char *inf_status_name (enum inf_status status);
 #define INF_URL_MAX 8
 #define INF_URL_LEN 1024
 
+/* Maximum raw prompt stored by the /inference node. */
+#define INF_PROMPT_MAX 8192
+
 /* Bound of the rendered type 1 request JSON; inf_request_to_json ()
- * writes into a caller-provided buffer of at least this size. */
-#define INF_JSON_MAX 8192
+ * writes into a caller-provided buffer of at least this size.  Worst
+ * case: every prompt byte escaped as \u00XX (6x) inside "prompt",
+ * plus the urls array re-rendering those same bytes (again 6x),
+ * plus the fixed skeleton and the NUL. */
+#define INF_JSON_MAX (12 * INF_PROMPT_MAX + 64)
 
 struct inf_request
 {
@@ -145,7 +151,6 @@ extern const char inf_spinner[INF_SPINNER_FRAMES][INF_SPINNER_SIZE]
  * drive directly — no terminal, no Hurd library needed. */
 
 #define INF_CONTRACT_VERSION 1
-#define INF_PROMPT_MAX 8192
 
 struct inf_fs
 {
