@@ -51,7 +51,11 @@ typedef mach_port_t *processor_name_array_t;
 #include "translator.h"
 
 #ifndef VERSION
-#define VERSION "0.1.0"
+# ifdef PACKAGE_VERSION
+#  define VERSION PACKAGE_VERSION
+# else
+#  define VERSION "0.1.0"
+# endif
 #endif
 
 /* --- Variables required by libnetfs ------------------------------- */

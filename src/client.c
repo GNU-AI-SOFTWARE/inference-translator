@@ -44,7 +44,11 @@
 #include <unistd.h>
 
 #ifndef VERSION
-#define VERSION "0.1.0"
+# ifdef PACKAGE_VERSION
+#  define VERSION PACKAGE_VERSION
+# else
+#  define VERSION "0.1.0"
+# endif
 #endif
 
 struct termios g_saved_tio;
