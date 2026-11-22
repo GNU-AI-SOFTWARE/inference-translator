@@ -74,6 +74,7 @@ _(rien)_
 - [x] Commandes d'entraînement : `/learn` (#50), `/read-code` (#52), `/learn-code` (#53) — persistance `/db` (`training_data`, checksum SHA-256)
 - [x] `/reply` passe par le neurone quand `/llm1…N` sont montés : question + extrait ancre → `inf_text_to_vector` → `write /llmK/input` → lecture `Output:` (round-robin), repli sur le cache sinon — précurseur de la phase 9 (grounding `?`)
 - [x] `/reply` : la sortie du neurone est aussi décodée en texte (`inf_vector_to_text`, inverse d'`inf_text_to_vector`) — bruit tant qu'aucun `.nn` n'est chargé dans `/llm1…N`
+- [x] **Trainer externe livré** — `scripts/train-from-db.py` : paires de `/db` (psql) ou du cache NDJSON → backprop sur le MLP sigmoïde (même forward/init que neuron-translator) → `.nn` v2 validé par le vrai `network_load` C → `load` dans `/llm1…N` ; boucle `/db` → `.nn` → neurone → `/reply` fermée
 
 ### Phase 2 — Le client `inference` : IHM minimale
 - [x] Bannière colorée, saisie multi-lignes (`termios`), commandes de base (`/editor`, `/task`, `/submit`, `/status`, `/quit`) (#11)
