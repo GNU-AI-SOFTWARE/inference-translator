@@ -56,6 +56,7 @@ phase ; les critères d'acceptation de chaque phase sont dans le plan.
 - [ ] Commande `replay` cohérente avec `/orchestrate`, sans dupliquer la persistance (PostgreSQL reste la source)
 
 ### Phase 7 — Durcissement, tests, CI
+- [x] `test_client.sh` ne SKIP plus sur Hurd : fallback pty maison (`tests/ptyrun.c`, compilé à la volée) quand `script(1)` est absent (util-linux ne le build pas sur Hurd, Debian #807071) ; `INFERENCE_TEST_FORCE_PTYRUN=1` teste ce chemin sur Linux
 - [ ] Tests déterministes du translator (suites POSIX sans terminal), tests du client via pseudo-terminaux
 - [ ] Tests du mode distant : sshd de test sur boucle locale, clé refusée, révocation à chaud, coupure de session
 - [ ] CI sous QEMU GNU/Hurd, pilotée par [GNU-AI-SOFTWARE/mistral-vm-debian-hurd](https://github.com/GNU-AI-SOFTWARE/mistral-vm-debian-hurd)

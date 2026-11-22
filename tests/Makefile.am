@@ -21,4 +21,4 @@ test_client_SOURCES = test_client.c
 test_client_LDADD = $(top_builddir)/src/libinfcore.a -lm
 test_client_CPPFLAGS = -I$(top_srcdir)/include
 
-EXTRA_DIST = test_cli.sh test_client.sh test_posix.sh
+EXTRA_DIST = test_cli.sh test_client.sh test_posix.sh ptyrun.c
