@@ -545,6 +545,27 @@ main (void)
         unlink (hpath);
       }
 
+    double rvec[4] = { 0.5, 0.25, 1.0 / 3.0, 0.0 };
+    char incmd[128];
+    inf_vector_command (incmd, sizeof incmd, rvec, 4);
+    check ("inf_vector_command renders the input command",
+           strcmp (incmd, "input 0.500000,0.250000,0.333333,0.000000") == 0);
+    inf_vector_command (incmd, 8, rvec, 4);
+    check ("inf_vector_command is bounded and NUL-terminated",
+           strcmp (incmd, "input 0") == 0);
+    char rp[256];
+    size_t rl = inf_reply_prompt (rp, sizeof rp, "salut", "system: poli\n");
+    check ("inf_reply_prompt carries question and context",
+           rl == strlen ("question: salut\ncontexte: system: poli\n")
+           && strcmp (rp, "question: salut\ncontexte: system: poli\n") == 0);
+    char big[8192];
+    memset (big, 'x', sizeof big - 1);
+    big[sizeof big - 1] = '\0';
+    rl = inf_reply_prompt (rp, sizeof rp, "q", big);
+    check ("inf_reply_prompt truncates the context to fit",
+           rl == sizeof rp - 1 && rp[rl] == '\0'
+           && strncmp (rp, "question: q\ncontexte: ", 22) == 0);
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }

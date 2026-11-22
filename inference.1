@@ -179,6 +179,16 @@ rempli par /learn, /learn-code et /entrainement). Sans argument, le prompt
 courant sert de question. Les enregistrements /entrainement répondent par la
 sortie du neurone (champ
 .IR output ).
+Quand des neurones sont montés (
+.IR /llm1 …N ),
+la question et l'extrait retenu sont vectorisés
+(
+.IR inf_text_to_vector )
+et écrits dans
+.I input
+du neurone (tour par tour) ; la section
+.I Output:
+lue en retour est la réponse du LLM, l'enregistrement cité servant d'ancre.
 .TP
 .B /sigmoid
 Visualise l'état des neurones montés (/llm1..N) : pour chaque sortie courante

@@ -72,6 +72,7 @@ _(rien)_
 - [x] Coloration syntaxique du prompt et des sorties JSON (#49)
 - [x] Animations : spinner pendant `/submit`, réaffichage propre ; retour arrière UTF-8 corrigé (#49)
 - [x] Commandes d'entraînement : `/learn` (#50), `/read-code` (#52), `/learn-code` (#53) — persistance `/db` (`training_data`, checksum SHA-256)
+- [x] `/reply` passe par le neurone quand `/llm1…N` sont montés : question + extrait ancre → `inf_text_to_vector` → `write /llmK/input` → lecture `Output:` (round-robin), repli sur le cache sinon — précurseur de la phase 9 (grounding `?`)
 
 ### Phase 2 — Le client `inference` : IHM minimale
 - [x] Bannière colorée, saisie multi-lignes (`termios`), commandes de base (`/editor`, `/task`, `/submit`, `/status`, `/quit`) (#11)

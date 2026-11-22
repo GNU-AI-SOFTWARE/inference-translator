@@ -933,6 +933,11 @@ training_cache_append (const char *rec)
 
 /* --- /reply: answer from the training data ---------------------------- */
 
+/* collect_neurons is defined with /entrainement below; forward-declared
+   here so /reply can reuse the neuron probe (/llm1..N). */
+#define REPLY_VEC_MAX 64
+static int collect_neurons (char llms[][32], int *nllm, unsigned *in_size);
+
 void
 cmd_reply (const char *arg)
 {
@@ -974,14 +979,62 @@ cmd_reply (const char *arg)
     /* /entrainement records carry {"input":..,"output":[..]} as content:
        the neuron output is the reply; plain /learn records reply with
        the stored text. */
-    char output[8192];
-    char content[262144];
+    char output[8192] = "";
+    char content[262144] = "";
     const char *reply = NULL;
     if (inf_json_str_field (best, "output", output, sizeof output) == 0
         && output[0] != '\0')
         reply = output;
     else if (inf_json_str_field (best, "content", content, sizeof content) == 0)
         reply = content;
+
+    /* Neuron-backed reply: when /llm1..N are mounted, the question plus
+       the best matching training excerpt are vectorized and fed to one
+       neuron (round-robin); its "Output:" section is the LLM answer and
+       the training record is cited as the anchor.  Otherwise fall back
+       to the stored text below. */
+    {
+        char llms[16][32];
+        int nllm = 0;
+        unsigned in_size = 0;
+        if (collect_neurons (llms, &nllm, &in_size) == 0)
+          {
+            const char *ctx = content[0] != '\0' ? content : output;
+            char prompt[8192];
+            inf_reply_prompt (prompt, sizeof prompt, query, ctx);
+            double vec[REPLY_VEC_MAX];
+            size_t vn = inf_text_to_vector (prompt, vec, in_size);
+            char incmd[2048];
+            inf_vector_command (incmd, sizeof incmd, vec, vn);
+            static int turn;
+            const char *llm = llms[(turn++) % nllm];
+            narrate_path ("write", llm);
+            if (write_root (llm, incmd, strlen (incmd)) == 0)
+              {
+                char out_text[8192];
+                narrate_path ("read", llm);
+                if (read_root (llm, out_text, sizeof out_text) >= 0)
+                  {
+                    double vals[REPLY_VEC_MAX];
+                    size_t nv = 0;
+                    inf_parse_neuron_output (out_text, vals, REPLY_VEC_MAX,
+                                             &nv);
+                    if (nv > 0)
+                      {
+                        printf ("  réponse du neurone %s, ancrée sur %s :\n",
+                                llm, url[0] != '\0' ? url : "cache local");
+                        printf ("  question : %s\n", query);
+                        char block[8192];
+                        inf_sigmoid_render (block, sizeof block, llm, vals,
+                                            nv, inf_client_color ());
+                        fputs (block, stdout);
+                        return;
+                      }
+                  }
+              }
+            printf ("  neurone %s indisponible — repli sur le cache\n", llm);
+          }
+    }
     printf ("  réponse d'après les données d'entraînement (%s) :\n",
             url[0] != '\0' ? url : "cache local");
     if (reply != NULL)

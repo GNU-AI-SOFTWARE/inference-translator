@@ -392,6 +392,12 @@ size_t inf_sigmoid_render (char *out, size_t outsz, const char *label,
  * to [0,1].  Returns n (always fills the whole vector). */
 size_t inf_text_to_vector (const char *text, double *out, size_t n);
 
+/* inf_vector_command: render the "input v1,...,vN" write command for the
+ * neuron translator from a vector (comma-separated %.6f), bounded and
+ * NUL-terminated; returns the length written. */
+size_t inf_vector_command (char *out, size_t outsz, const double *vec,
+                           size_t n);
+
 /* --- /reply: search the training cache -------------------------------
  *
  * inf_training_search: scan an NDJSON cache of training records (one
@@ -402,6 +408,12 @@ size_t inf_text_to_vector (const char *text, double *out, size_t n);
  * record scores above zero). */
 size_t inf_training_search (const char *ndjson, const char *query,
                             char *out, size_t outsz);
+
+/* inf_reply_prompt: bounded grounding prompt for a neuron-backed /reply:
+ * "question: QUERY\ncontexte: CONTEXT" with both parts truncated to fit;
+ * always NUL-terminated, returns the length written. */
+size_t inf_reply_prompt (char *out, size_t outsz, const char *query,
+                         const char *context);
 
 /* --- /hf: Hugging Face buckets/datasets over plain HTTP --------------
  *
