@@ -15,6 +15,13 @@
  * of the slave without O_NOCTTY), so isatty(0) && isatty(1) hold and
  * the interactive client starts.  Exit status: the child's exit
  * status, or 124 when the 60 s watchdog fires.
+ *
+ * stdin is forwarded to the master only once the child has produced
+ * output (or after a 2 s grace period for silent children): the
+ * client switches its tty to raw mode before printing anything, so
+ * the first output byte means "raw mode is active" and piped input
+ * can never be flushed by an ICANON clear on pty servers that discard
+ * the canonical queue on mode change (GNU/Hurd).
  */
 
 #define _XOPEN_SOURCE 700
@@ -87,12 +94,13 @@ main (int argc, char **argv)
     }
 
   int stdin_open = 1;
+  int ready = 0;        /* 1 once the child produced output (or 2 s elapsed) */
   for (;;)
     {
       struct pollfd pfd[2];
       nfds_t n = 0;
       size_t m;
-      if (stdin_open)
+      if (stdin_open && ready)
         {
           pfd[n].fd = STDIN_FILENO;
           pfd[n].events = POLLIN;
@@ -105,14 +113,20 @@ main (int argc, char **argv)
       n++;
       m = n - 1;
 
-      if (poll (pfd, n, -1) < 0)
+      int pr = poll (pfd, n, ready ? -1 : 2000);
+      if (pr < 0)
         {
           if (errno == EINTR)
             continue;
           break;
         }
+      if (pr == 0)
+        {
+          ready = 1;    /* silent child: forward stdin anyway */
+          continue;
+        }
 
-      if (stdin_open && (pfd[0].revents & (POLLIN | POLLHUP | POLLERR)))
+      if (stdin_open && ready && (pfd[0].revents & (POLLIN | POLLHUP | POLLERR)))
         {
           char buf[4096];
           ssize_t r = read (STDIN_FILENO, buf, sizeof buf);
@@ -137,6 +151,7 @@ main (int argc, char **argv)
           ssize_t r = read (master, buf, sizeof buf);
           if (r <= 0)
             break;              /* child gone: the pty master reports EOF/EIO */
+          ready = 1;
           ssize_t off = 0;
           while (off < r)
             {
