@@ -14,9 +14,14 @@ Format « Keep a Changelog », versionnage sémantique. Les contrats gelés
 de `SPEC.md` ne changent jamais silencieusement : toute évolution passe
 par un bump de `version`.
 
-## [1.0.0] — 2026-11-22
-
 ## [Unreleased]
+
+### Modifié
+
+- **Reset de version à 0.1.0** : la v1.0.0 avait été coupée par le tail d'un
+  bootstrap raté (avant le merge des PRs de versioning). `VERSION` repasse à
+  0.1.0, la section `## [1.0.0]` est retirée et le tag `v1.0.0` supprimé ;
+  le versionnage itératif repart de 0.1.0 → 0.1.1 → …
 
 ### Corrigé
 
