@@ -189,6 +189,12 @@ et écrits dans
 du neurone (tour par tour) ; la section
 .I Output:
 lue en retour est la réponse du LLM, l'enregistrement cité servant d'ancre.
+La sortie est aussi décodée en texte court
+(
+.IR inf_vector_to_text ","
+inverse d'
+.IR inf_text_to_vector ")."
+
 .TP
 .B /sigmoid
 Visualise l'état des neurones montés (/llm1..N) : pour chaque sortie courante

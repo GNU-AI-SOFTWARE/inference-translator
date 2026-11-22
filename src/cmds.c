@@ -1028,6 +1028,11 @@ cmd_reply (const char *arg)
                         inf_sigmoid_render (block, sizeof block, llm, vals,
                                             nv, inf_client_color ());
                         fputs (block, stdout);
+                        char decoded[256];
+                        if (inf_vector_to_text (decoded, sizeof decoded,
+                                                vals, nv) > 0)
+                            printf ("  réponse du LLM (texte décodé) : %s\n",
+                                    decoded);
                         return;
                       }
                   }

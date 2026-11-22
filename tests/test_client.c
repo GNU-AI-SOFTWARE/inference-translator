@@ -565,6 +565,15 @@ main (void)
     check ("inf_reply_prompt truncates the context to fit",
            rl == sizeof rp - 1 && rp[rl] == '\0'
            && strncmp (rp, "question: q\ncontexte: ", 22) == 0);
+    double dvec[3] = { 0.0, 100.0, -100.0 };   /* sig ~ 0.5, ~1, ~0 */
+    char dtxt[256];
+    size_t tl = inf_vector_to_text (dtxt, sizeof dtxt, dvec, 3);
+    check ("inf_vector_to_text decodes deterministically (n*8 chars)",
+           tl == 24 && dtxt[0] == '*' && dtxt[1] == '.' && dtxt[2] == '.'
+           && dtxt[3] == '*' && dtxt[23] == '.');
+    check ("inf_vector_to_text empty vector -> empty string",
+           inf_vector_to_text (dtxt, sizeof dtxt, NULL, 0) == 0
+           && dtxt[0] == '\0');
 
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
