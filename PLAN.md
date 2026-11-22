@@ -234,7 +234,8 @@ défaut.
 ├── request     (read)   requête structurée (type 1, JSON)
 ├── urls        (read)   URLs extraites, une par ligne, dans l'ordre
 ├── task        (r/w)    type de tâche : summarize | translate |
-│                        answer | classify | custom
+│                        answer | classify | custom ; écrire « auto » efface la surcharge
+│                        (re-détection depuis le prompt courant)
 ├── params      (r/w)    paramètres additionnels (JSON, optionnel)
 ├── status      (read)   état : idle | composing | parsed | submitted
 └── version     (read)   version et contrats supportés

@@ -15,7 +15,8 @@
  *     request (contract.c), status becomes "parsed".  The task is
  *     re-detected unless /inference/task was manually overridden.
  *   - write "task": override the task (sticky until changed again);
- *     the last request is updated too.
+ *     the last request is updated too.  Writing "auto" clears the
+ *     override: the task is detected again from the current prompt.
  *   - read "request"/"urls" before any prompt: -1 (nothing parsed yet).
  *   - read "params": always "{}" in phase 1.
  *   - read "version": {"program":...,"version":...,"contract":1}.
@@ -130,6 +131,18 @@ inf_fs_write (struct inf_fs *fs, const char *node, const char *data,
         while (len > 0 && (data[len - 1] == '\n' || data[len - 1] == '\r'
                            || data[len - 1] == ' ' || data[len - 1] == '\t'))
             len--;
+        if (len == 4 && memcmp (data, "auto", 4) == 0)
+          {
+            /* "auto" clears a manual override: the task is detected
+               again from the current prompt (if one was parsed). */
+            fs->task_overridden = false;
+            if (fs->parsed)
+              {
+                fs->task = inf_detect_task (fs->prompt);
+                fs->last.task = fs->task;
+              }
+            return 0;
+          }
         enum inf_task t;
         if (!inf_task_from_name (data, len, &t))
             return -1;

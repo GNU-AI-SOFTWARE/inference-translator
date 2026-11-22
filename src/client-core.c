@@ -154,6 +154,7 @@ inf_client_complete (const char *line, size_t len, char *out,
         toklen = len - 6;
         for (int t = 0; t <= INF_TASK_CUSTOM; t++)
             cands[ncand++] = inf_task_name ((enum inf_task) t);
+        cands[ncand++] = "auto";
       }
     else if (len > 0 && line[0] == '/')
       {

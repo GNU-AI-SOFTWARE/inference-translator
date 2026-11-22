@@ -90,3 +90,4 @@ _(rien)_
 - [x] `write` du prompt sur `/inference/prompt` ; extraction des URLs (regex gelée) — #8
 - [x] `read` de `/inference/request` (type 1), `/urls`, `/task`, `/status`, `/params`, `/version` — #9
 - [x] Détection heuristique de la tâche (mots-clés), surcharge manuelle via `/inference/task` — #10
+- [x] Reset de la surcharge : écrire `auto` sur `/inference/task` re-détecte la tâche depuis le prompt courant (`/task auto` côté client, complétion Tab) — rend `test_posix.sh` idempotent sur un montage persistant

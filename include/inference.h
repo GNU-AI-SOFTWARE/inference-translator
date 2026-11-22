@@ -244,6 +244,10 @@ size_t inf_client_complete (const char *line, size_t len, char *out,
 /* Validate a task name against the frozen enum. */
 bool inf_task_from_name (const char *s, size_t len, enum inf_task *out);
 
+/* Keyword-rule task detection (frozen inf_task_rules[] table); used to
+   re-detect the task when a manual override is cleared with "auto". */
+enum inf_task inf_detect_task (const char *prompt);
+
 /* True unless NO_COLOR is set and non-empty (SPEC.md section 6). */
 bool inf_client_color (void);
 

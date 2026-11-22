@@ -80,7 +80,10 @@ sur un fichier temporaire, puis le relit.
 .TP
 .BI /task " TÂCHE"
 Force le type de tâche pour la prochaine soumission.  TÂCHE est l'un de
-.BR summarize ", " translate ", " answer ", " classify ", " custom .
+.BR summarize ", " translate ", " answer ", " classify ", " custom ,
+ou
+.B auto
+pour effacer la surcharge et rétablir la détection par mots-clés.
 Écrit dans
 .IR <montage>/task .
 .TP
@@ -274,7 +277,9 @@ Quitte (EOF).
 Écriture : le prompt brut soumis.
 .TP
 .I <montage>/task
-Écriture : override de tâche (contrat gelé).
+Écriture : override de tâche (contrat gelé) ; écrire
+.B auto
+efface la surcharge (re-détection depuis le prompt courant).
 .TP
 .I <montage>/request
 Lecture : requête JSON de type 1, octet exact :

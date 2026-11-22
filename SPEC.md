@@ -256,7 +256,7 @@ un répertoire racine et sept nœuds fixes.
 | Nœud | Effet |
 |---|---|
 | `prompt` (w) | stocke le prompt brut, le parse en requête type 1 (`request`), statut → `parsed`. La tâche est re-détectée, sauf si `/inference/task` a été surchargé manuellement. |
-| `task` (w) | surcharge **collante** de la tâche (`summarize` \| `translate` \| `answer` \| `classify` \| `custom`) ; la dernière `request` est mise à jour. Nom invalide → refus. |
+| `task` (w) | surcharge **collante** de la tâche (`summarize` \| `translate` \| `answer` \| `classify` \| `custom`) ; la dernière `request` est mise à jour. Nom invalide → refus. Écrire `auto` efface la surcharge et re-détecte la tâche depuis le prompt courant. |
 
 ### Lectures
 

@@ -646,7 +646,7 @@ cmd_help (void)
     printf ("  Tâches de /task :");
     for (int t = 0; t <= INF_TASK_CUSTOM; t++)
         printf (" %s", inf_task_name ((enum inf_task) t));
-    printf ("\n");
+    printf (" auto\n");
     printf ("  Édition de ligne : DEL efface le dernier caractère, "
             "Tab complète\n    (commande ou tâche), '\\' en tête de ligne "
             "échappe le '/' (texte libre).\n");
@@ -669,13 +669,22 @@ cmd_task (const char *arg)
     if (arg == NULL || *arg == '\0')
       {
         printf ("  usage: /task TÂCHE (summarize|translate|answer|classify|"
-                "custom)\n");
+                "custom|auto)\n");
+        return;
+      }
+    if (strcmp (arg, "auto") == 0)
+      {
+        narrate ("write", INF_NODE_TASK);
+        if (write_node (INF_NODE_TASK, arg, strlen (arg)) != 0)
+            printf ("  écriture refusée: %s\n", strerror (errno));
+        else
+            printf ("  détection automatique rétablie (/task auto)\n");
         return;
       }
     if (!inf_task_from_name (arg, strlen (arg), &t))
       {
         printf ("  tâche inconnue: %s (summarize|translate|answer|classify|"
-                "custom)\n", arg);
+                "custom|auto)\n", arg);
         return;
       }
     narrate ("write", INF_NODE_TASK);

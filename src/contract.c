@@ -115,9 +115,11 @@ inf_json_escape (const char *in, char *out, size_t outsz)
     *s.p = '\0';
 }
 
-/* First keyword rule that matches the prompt wins; default custom. */
-static enum inf_task
-detect_task (const char *prompt)
+/* First keyword rule that matches the prompt wins; default custom.
+   Exposed as inf_detect_task () so the fs layer can re-detect the task
+   once a manual /inference/task override is cleared with "auto". */
+enum inf_task
+inf_detect_task (const char *prompt)
 {
     for (size_t i = 0; i < inf_task_rules_count; i++)
       {
@@ -138,7 +140,7 @@ inf_parse_prompt (const char *prompt, struct inf_request *req)
 {
     req->prompt = prompt;
     req->url_count = 0;
-    req->task = detect_task (prompt);
+    req->task = inf_detect_task (prompt);
 
     regex_t re;
     if (regcomp (&re, INF_URL_REGEX, REG_EXTENDED) != 0)
