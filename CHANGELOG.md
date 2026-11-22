@@ -50,7 +50,7 @@ par un bump de `version`.
   `inf_history_*` testé (64/64, contrat 36/36 — 13 commandes).
 - **`/uptime`** (14e commande slash) : version du client, version du
   translator (lue dans `<montage>/version`) et uptime de la session ;
-  formateur pur `inf_format_uptime` testé (89/89, contrat 36/36 — 17
+  formateur pur `inf_format_uptime` testé (106/106, contrat 36/36 — 19
   commandes). Documentation à jour : `inference(1)` (options `--db`,
   `--orchestrate`, `--history`, commandes `/learn` `/read-code`
   `/learn-code` `/watch` `/history` `/uptime`, flèches haut/bas,
@@ -65,12 +65,14 @@ par un bump de `version`.
   `/llm1..N` — sorties courantes lues sur chaque nœud, activation sigmoïde
   et barre ASCII par sortie (`inf_parse_neuron_output`, `inf_sigmoid`,
   `inf_sigmoid_render`, nouveau module `src/neuron.c`).
-- **`/entrainement URL`** (17e commande) : télécharge la page (ex.
-  `https://huggingface.co/datasets`), la découpe en extraits, fait passer
-  chaque extrait par le neuron-translator (`input` vectorisé
-  déterministiquement via `inf_text_to_vector`, lecture de la sortie), puis
-  enregistre `{input, output, neuron}` dans `/db` (`training_data`) et le
-  cache local.
+- **`/entrainement URL|hf://… [dir]`** (17e commande) : télécharge la page
+  (ex. `https://huggingface.co/datasets`) **ou un dépôt `hf://`** (ex.
+  `hf://buckets/clairemariecoralie/cyber-security-bucket`, fichiers
+  téléchargés dans `[dir]`, défaut `./data`, comme `hf sync ./data hf://…`),
+  découpe en extraits, fait passer chaque extrait par le
+  neuron-translator (`input` vectorisé déterministiquement via
+  `inf_text_to_vector`, lecture de la sortie), puis enregistre
+  `{input, output, neuron}` dans `/db` (`training_data`) et le cache local.
 - **DNS automatique** : à chaque URL ajoutée (`/fetch`, `/learn`,
   `/read-code`, `/learn-code`, `/entrainement`), l'hôte est extrait
   (`inf_url_host`), et s'il n'est ni une IP littérale ni présent dans
@@ -80,6 +82,20 @@ par un bump de `version`.
 - **Ligne d'information machine** : à chaque prompt, une ligne atténuée
   `CPU … | MEM …` (`inf_client_stats_line`) s'affiche entre la ligne de
   prompt et le reste de la fenêtre.
+- **`/hf`** (18e commande) : `/hf list hf://…` liste l'arbre d'un dépôt
+  Hugging Face (buckets/datasets/models) via l'API HTTP
+  (`inf_hf_parse`, `inf_hf_api_url`, `inf_hf_resolve_url`,
+  `inf_json_array_count`/`inf_json_array_object`) ; `/hf sync
+  hf://buckets/<owner>/<bucket> ./local` télécharge chaque fichier vers le
+  dossier local (copie sûre, sans `..`) puis le **convertit en données
+  lisibles par la base** : découpage, SHA-256, enregistrements `/db`
+  `training_data` + cache local. Fonctionne par httpfs pur (pas besoin du
+  CLI `hf` installé via `curl -LsSf https://hf.co/cli/install.sh | bash`,
+  qui reste une alternative pour les gros volumes).
+- **`/db`** (19e commande) : exploration/recherche de la base —
+  `/db status` (écrit `{"status": true}` sur `/db`, affiche la réponse),
+  `/db search MOT...` (liste les enregistrements correspondants,
+  `inf_training_search_list`), `/db list [N]`, `/db count`.
 
 ### Corrigé
 

@@ -950,7 +950,10 @@ cmd_sigmoid (void)
                 "  montez-en un : settrans -a /llm1 neuron-translator ...\n");
 }
 
-/* --- /entrainement URL: fill /db through the neuron-translator -------- */
+/* --- /entrainement: fill /db through the neuron-translator ------------
+   Accepts a page URL (http/https) OR an hf:// URL (bucket/dataset/model):
+   the hf:// files are downloaded into a local dir (like /hf sync), then
+   every chunk is fed to a neuron before being stored in /db. */
 
 #define TRAIN_MAX_CHUNKS 64
 #define TRAIN_CHUNK_MAX  1024
@@ -968,69 +971,40 @@ neuron_input_size (const char *text)
     return (unsigned) strtoul (p, NULL, 10);
 }
 
-void
-cmd_training (const char *arg)
+/* collect_neurons — probe /llm1../llm16 into LLMS; *in_size gets the input
+   layer size parsed from the last status text.  0 on success, -1 when no
+   neuron answers or the input size is unknown/unsupported. */
+static int
+collect_neurons (char llms[][32], int *nllm, unsigned *in_size)
 {
-    char urlbuf[2048];
-    if (arg == NULL || *arg == '\0')
-      {
-        printf ("  usage: /entrainement URL (page de dataset, ex. "
-                "https://huggingface.co/datasets)\n");
-        return;
-      }
-    snprintf (urlbuf, sizeof urlbuf, "%s", arg);
-    inf_url_trim (urlbuf);
-    if (!inf_url_valid (urlbuf))
-      {
-        printf ("  URL invalide: http:// ou https:// suivi d'un hôte requis\n");
-        return;
-      }
-    long status;
-    char *body;
-    size_t blen;
-    if (fetch_url (urlbuf, &status, &body, &blen) != 0)
-        return;
-    print_http_status (status);
-    if (status < 200 || status >= 300)
-      {
-        free (body);
-        return;
-      }
-    char text[262144];
-    inf_html_to_text (text, sizeof text, body);
-    free (body);
-    if (text[0] == '\0')
-      {
-        printf ("  page sans texte exploitable\n");
-        return;
-      }
-
-    /* collect the neuron mounts that answer (/llm1..16) */
-    static char llms[16][32];
-    int nllm = 0;
     char probe[8192];
-    for (int i = 1; i <= 16 && nllm < 16; i++)
+    *nllm = 0;
+    *in_size = 0;
+    for (int i = 1; i <= 16 && *nllm < 16; i++)
       {
-        snprintf (llms[nllm], sizeof llms[0], "/llm%d", i);
-        if (read_root (llms[nllm], probe, sizeof probe) >= 0)
-            nllm++;
+        snprintf (llms[*nllm], sizeof llms[0], "/llm%d", i);
+        if (read_root (llms[*nllm], probe, sizeof probe) >= 0)
+            (*nllm)++;
       }
-    if (nllm == 0)
-      {
-        printf ("  aucun neurone monté (/llm1..N) : /entrainement fait "
-                "passer chaque extrait par le neuron-translator\n"
-                "  settrans -a /llm1 neuron-translator ...\n");
-        return;
-      }
-    unsigned in_size = neuron_input_size (probe);
-    if (in_size == 0 || in_size > TRAIN_VEC_MAX)
-      {
-        printf ("  taille d'entrée du neurone inconnue ou > %d (%u)\n",
-                TRAIN_VEC_MAX, in_size);
-        return;
-      }
+    if (*nllm == 0)
+        return -1;
+    *in_size = neuron_input_size (probe);
+    if (*in_size == 0 || *in_size > TRAIN_VEC_MAX)
+        return -1;
+    return 0;
+}
 
-    /* split the text into chunks on blank lines, capped */
+static void hf_train (const char *hfurl, const char *localdir);
+static char *hf_fetch_list (const char *hfurl, long *out_status);
+static bool path_safe (const char *path);
+
+/* train_text — split TEXT into chunks, feed each chunk through a neuron
+   (llms[c % nllm]), and store {"input":..,"output":[..],"neuron":..} in
+   /db (training_data) + the local cache.  Returns the records stored. */
+static size_t
+train_text (const char *source_url, long http_status, const char *text,
+            char llms[][32], int nllm, unsigned in_size)
+{
     static const char *chunks[TRAIN_MAX_CHUNKS];
     static size_t clens[TRAIN_MAX_CHUNKS];
     size_t nchunks = 0;
@@ -1072,13 +1046,11 @@ cmd_training (const char *arg)
           }
     }
     if (nchunks == 0)
-      {
-        printf ("  aucun extrait d'entraînement dans la page\n");
-        return;
-      }
+        return 0;
     printf ("  %zu extrait(s) à faire passer par %d neurone(s) "
             "(entrée %u)\n", nchunks, nllm, in_size);
 
+    size_t nrec = 0;
     for (size_t c = 0; c < nchunks; c++)
       {
         char chunk[TRAIN_CHUNK_MAX + 1];
@@ -1137,10 +1109,589 @@ cmd_training (const char *arg)
         inf_sha256_hex (sum, (const unsigned char *) content,
                         strlen (content));
         char rec[300000];
-        inf_training_record (rec, sizeof rec, urlbuf, status, content, sum);
+        inf_training_record (rec, sizeof rec, source_url, http_status,
+                             content, sum);
         printf ("  extrait %zu/%zu -> %s, sortie [%zu valeurs]\n",
                 c + 1, nchunks, llm, nv);
         db_store_and_report (rec);
         training_cache_append (rec);
+        nrec++;
       }
+    return nrec;
+}
+
+static void
+train_neurons_or_die (char llms[][32], int *nllm, unsigned *in_size)
+{
+    if (collect_neurons (llms, nllm, in_size) != 0)
+      {
+        printf ("  aucun neurone monté (/llm1..N) ou entrée illisible : "
+                "/entrainement fait passer chaque extrait par le "
+                "neuron-translator\n"
+                "  settrans -a /llm1 neuron-translator ...\n");
+        *nllm = 0;
+      }
+}
+
+void
+cmd_training (const char *arg)
+{
+    char urlbuf[2048], dirbuf[1024] = "";
+    if (arg == NULL || *arg == '\0')
+      {
+        printf ("  usage: /entrainement URL|hf://... [dossier-local]\n"
+                "    URL      : page de dataset (ex. https://huggingface.co/datasets)\n"
+                "    hf://…   : bucket/dataset/model HF (ex. hf://buckets/<owner>/<bucket>),\n"
+                "               téléchargé dans [dossier-local] (défaut ./data)\n");
+        return;
+      }
+    int nf = sscanf (arg, "%2047s %1023s", urlbuf, dirbuf);
+    if (nf < 1)
+      {
+        printf ("  usage: /entrainement URL|hf://... [dossier-local]\n");
+        return;
+      }
+    inf_url_trim (urlbuf);
+    if (inf_hf_url (urlbuf))
+      {
+        hf_train (urlbuf, nf >= 2 && dirbuf[0] != '\0' ? dirbuf : "./data");
+        return;
+      }
+    if (!inf_url_valid (urlbuf))
+      {
+        printf ("  URL invalide: http://, https:// ou hf:// requis\n");
+        return;
+      }
+    long status;
+    char *body;
+    size_t blen;
+    if (fetch_url (urlbuf, &status, &body, &blen) != 0)
+        return;
+    print_http_status (status);
+    if (status < 200 || status >= 300)
+      {
+        free (body);
+        return;
+      }
+    char text[262144];
+    inf_html_to_text (text, sizeof text, body);
+    free (body);
+    if (text[0] == '\0')
+      {
+        printf ("  page sans texte exploitable\n");
+        return;
+      }
+    static char llms[16][32];
+    int nllm = 0;
+    unsigned in_size = 0;
+    train_neurons_or_die (llms, &nllm, &in_size);
+    if (nllm == 0)
+        return;
+    size_t n = train_text (urlbuf, status, text, llms, nllm, in_size);
+    printf ("  %zu enregistrement(s) d'entraînement écrits dans /db\n", n);
+}
+
+/* --- /hf: Hugging Face hf:// over plain HTTP (httpfs + /etc/hosts auto) - */
+
+/* path_safe — reject path traversal in bucket file paths. */
+static bool
+path_safe (const char *path)
+{
+    if (path == NULL || *path == '\0' || *path == '/')
+        return false;
+    const char *p = path;
+    while (*p != '\0')
+      {
+        const char *seg = p;
+        while (*p != '\0' && *p != '/')
+            p++;
+        size_t sl = (size_t) (p - seg);
+        if (sl == 2 && seg[0] == '.' && seg[1] == '.')
+            return false;
+        if (*p == '/')
+            p++;
+      }
+    return true;
+}
+
+/* hf_fetch_list — fetch the HF tree API for HFURL; returns a malloc'd
+   JSON array body (caller frees) or NULL. */
+static char *
+hf_fetch_list (const char *hfurl, long *out_status)
+{
+    char api[2048];
+    if (inf_hf_api_url (hfurl, api, sizeof api) == 0)
+      {
+        printf ("  URL hf:// invalide (attendu: hf://buckets|datasets|models/<owner>/<repo>[/prefix])\n");
+        return NULL;
+      }
+    char *body;
+    size_t blen;
+    if (fetch_url (api, out_status, &body, &blen) != 0)
+        return NULL;
+    print_http_status (*out_status);
+    if (*out_status < 200 || *out_status >= 300)
+      {
+        free (body);
+        return NULL;
+      }
+    return body;
+}
+
+static void
+hf_list (const char *hfurl)
+{
+    long status;
+    char *tree = hf_fetch_list (hfurl, &status);
+    if (tree == NULL)
+        return;
+    size_t n = inf_json_array_count (tree);
+    printf ("  %zu entrée(s) dans %s :\n", n, hfurl);
+    for (size_t i = 0; i < n && i < 200; i++)
+      {
+        char obj[4096];
+        if (inf_json_array_object (tree, i, obj, sizeof obj) == 0)
+            break;
+        char path[1024] = "", type[32] = "";
+        double size = 0;
+        (void) inf_json_str_field (obj, "path", path, sizeof path);
+        (void) inf_json_str_field (obj, "type", type, sizeof type);
+        (void) inf_json_num_field (obj, "size", &size);
+        printf ("    %-6s %8.0f  %s\n", type, size, path);
+      }
+    free (tree);
+}
+
+/* hf_ingest_text — convert one training text into DB-readable records:
+   chunked, checksummed, written to /db (training_data) + local cache. */
+static size_t
+hf_ingest_text (const char *source_url, long http_status, const char *text)
+{
+    size_t nrec = 0;
+    const char *p = text;
+    while (*p != '\0' && nrec < 64)
+      {
+        while (*p == '\n' || *p == ' ' || *p == '\r')
+            p++;
+        if (*p == '\0')
+            break;
+        const char *start = p;
+        const char *end = p;
+        while (*end != '\0' && (size_t) (end - start) < 8000)
+          {
+            if (end[0] == '\n' && (end[1] == '\n' || end[1] == '\0'))
+              {
+                end++;
+                break;
+              }
+            end++;
+          }
+        size_t cl = (size_t) (end - start);
+        while (cl > 0 && (start[cl - 1] == '\n' || start[cl - 1] == ' '
+                          || start[cl - 1] == '\r'))
+            cl--;
+        if (cl == 0)
+            break;
+        char chunk[8001];
+        memcpy (chunk, start, cl);
+        chunk[cl] = '\0';
+        char sum[65];
+        inf_sha256_hex (sum, (const unsigned char *) chunk, cl);
+        char rec[300000];
+        inf_training_record (rec, sizeof rec, source_url, http_status,
+                             chunk, sum);
+        db_store_and_report (rec);
+        training_cache_append (rec);
+        nrec++;
+        p = end;
+      }
+    return nrec;
+}
+
+static void
+hf_sync (const char *hfurl, const char *localdir)
+{
+    char kind[16], owner[256], repo[256], prefix[1024];
+    if (!inf_hf_parse (hfurl, kind, sizeof kind, owner, sizeof owner,
+                       repo, sizeof repo, prefix, sizeof prefix))
+      {
+        printf ("  URL hf:// invalide\n");
+        return;
+      }
+    char q[2100];
+    shell_quote (q, sizeof q, localdir);
+    char cmd[4400];
+    snprintf (cmd, sizeof cmd, "mkdir -p %s", q);
+    if (system (cmd) != 0)
+      {
+        printf ("  impossible de créer %s\n", localdir);
+        return;
+      }
+    long status;
+    char *tree = hf_fetch_list (hfurl, &status);
+    if (tree == NULL)
+        return;
+    size_t n = inf_json_array_count (tree);
+    size_t nfiles = 0, nrec = 0;
+    printf ("  sync de %s vers %s (%zu entrée(s))\n", hfurl, localdir, n);
+    for (size_t i = 0; i < n && i < 200; i++)
+      {
+        char obj[4096];
+        if (inf_json_array_object (tree, i, obj, sizeof obj) == 0)
+            break;
+        char path[1024] = "", type[32] = "";
+        (void) inf_json_str_field (obj, "path", path, sizeof path);
+        (void) inf_json_str_field (obj, "type", type, sizeof type);
+        if (strcmp (type, "file") != 0 || !path_safe (path))
+            continue;
+        char resolve[2048];
+        if (inf_hf_resolve_url (hfurl, path, resolve, sizeof resolve) == 0)
+            continue;
+        char *body;
+        size_t blen;
+        long fstatus;
+        if (fetch_url (resolve, &fstatus, &body, &blen) != 0)
+            continue;
+        print_http_status (fstatus);
+        if (fstatus < 200 || fstatus >= 300)
+          {
+            free (body);
+            continue;
+          }
+        /* write the local copy */
+        char lp[4200];
+        snprintf (lp, sizeof lp, "%s/%s", localdir, path);
+        char *slash;
+        for (slash = lp + strlen (localdir); *slash != '\0'; slash++)
+            if (*slash == '/' && slash[1] != '\0')
+              {
+                *slash = '\0';
+                mkdir (lp, 0755);
+                *slash = '/';
+              }
+        int fd = open (lp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0)
+          {
+            size_t off = 0;
+            while (off < blen)
+              {
+                ssize_t wn = write (fd, body + off, blen - off);
+                if (wn <= 0)
+                    break;
+                off += (size_t) wn;
+              }
+            close (fd);
+          }
+        /* convert the training data into DB-readable records */
+        char text[262144];
+        inf_html_to_text (text, sizeof text, body);
+        nrec += hf_ingest_text (resolve, fstatus, text);
+        free (body);
+        nfiles++;
+        printf ("  [%zu/%zu] %s -> %s (%zu octets)\n", nfiles, n, path, lp,
+                blen);
+      }
+    free (tree);
+    printf ("  sync terminé: %zu fichier(s), %zu enregistrement(s) dans /db\n",
+            nfiles, nrec);
+}
+
+void
+cmd_hf (const char *arg)
+{
+    if (arg == NULL || *arg == '\0')
+      {
+        printf ("  usage:\n"
+                "    /hf list hf://buckets/<owner>/<bucket>[/prefix]\n"
+                "    /hf sync hf://buckets/<owner>/<bucket>[/prefix] <dossier-local>\n"
+                "  (aussi hf://datasets/... et hf://models/... ; sync convertit\n"
+                "   les fichiers en enregistrements /db training_data)\n");
+        return;
+      }
+    char sub[16] = "", url[2048] = "", dir[1024] = "";
+    int nf = sscanf (arg, "%15s %2047s %1023s", sub, url, dir);
+    if (nf < 2)
+      {
+        printf ("  usage: /hf list <hf://...>  ou  /hf sync <hf://...> <dossier>\n");
+        return;
+      }
+    if (strcmp (sub, "list") == 0)
+        hf_list (url);
+    else if (strcmp (sub, "sync") == 0)
+      {
+        if (nf < 3)
+          {
+            printf ("  usage: /hf sync <hf://...> <dossier-local>\n");
+            return;
+          }
+        hf_sync (url, dir);
+      }
+    else
+        printf ("  sous-commande inconnue: %s (list | sync)\n", sub);
+}
+
+/* --- /db: explore and search the database ------------------------------ */
+
+/* db_status — write {"status": true} to /db, read and show the answer. */
+static void
+db_status (void)
+{
+    const char *req = "{\"status\": true}";
+    if (inf_client_color ())
+        printf ("\033[2m→ write %s\033[0m\n", g_db);
+    else
+        printf ("→ write %s\n", g_db);
+    if (write_root (g_db, req, strlen (req)) != 0)
+      {
+        printf ("  /db injoignable (%s) — montez db-translator :\n"
+                "    settrans -a /db db-translator --conninfo \"dbname=gnuai\"\n",
+                strerror (errno));
+        return;
+      }
+    char resp[8192];
+    if (inf_client_color ())
+        printf ("\033[2m→ read %s\033[0m\n", g_db);
+    else
+        printf ("→ read %s\n", g_db);
+    if (read_root (g_db, resp, sizeof resp) < 0)
+      {
+        printf ("  pas de réponse de %s\n", g_db);
+        return;
+      }
+    resp[strcspn (resp, "\r\n")] = '\0';
+    char hl[32768];
+    inf_json_highlight (hl, sizeof hl, resp, inf_client_color ());
+    printf ("  db: %s\n", hl);
+}
+
+/* load the training cache (the local mirror of /db training_data). */
+static ssize_t
+load_training_cache (char *buf, size_t bufsz)
+{
+    if (g_training_cache == NULL || g_training_cache[0] == '\0')
+        return -1;
+    int fd = open (g_training_cache, O_RDONLY);
+    if (fd < 0)
+        return -1;
+    ssize_t n = read (fd, buf, bufsz - 1);
+    close (fd);
+    if (n < 0)
+        return -1;
+    buf[n] = '\0';
+    return n;
+}
+
+static void
+db_search (const char *query)
+{
+    static char cache[4 * 1024 * 1024];
+    if (load_training_cache (cache, sizeof cache) <= 0)
+      {
+        printf ("  cache d'entraînement vide (%s) — /learn, /entrainement "
+                "ou /hf sync d'abord\n",
+                g_training_cache != NULL ? g_training_cache : "?");
+        return;
+      }
+    static char hits[512 * 1024];
+    size_t n = inf_training_search_list (cache, query, hits, sizeof hits,
+                                         50);
+    printf ("  %zu enregistrement(s) de /db correspondent à « %s » :\n",
+            n, query);
+    size_t shown = 0;
+    for (char *line = strtok (hits, "\n"); line != NULL && shown < 20;
+         line = strtok (NULL, "\n"))
+      {
+        char url[2048] = "", content[262144];
+        (void) inf_json_str_field (line, "source_url", url, sizeof url);
+        if (inf_json_str_field (line, "content", content, sizeof content)
+            != 0)
+            content[0] = '\0';
+        content[160] = '\0';
+        printf ("    %s\n      %s%s\n", url[0] != '\0' ? url : "(sans url)",
+                content, strlen (content) >= 160 ? "…" : "");
+        shown++;
+      }
+}
+
+static void
+db_list (const char *nstr)
+{
+    static char cache[4 * 1024 * 1024];
+    if (load_training_cache (cache, sizeof cache) <= 0)
+      {
+        printf ("  cache vide (%s)\n",
+                g_training_cache != NULL ? g_training_cache : "?");
+        return;
+      }
+    long max = nstr != NULL && *nstr != '\0' ? strtol (nstr, NULL, 10)
+                                              : 100;
+    if (max <= 0 || max > 1000)
+        max = 100;
+    /* count lines, then show the last MAX */
+    size_t total = 0;
+    for (const char *p = cache; *p != '\0'; p++)
+        if (*p == '\n')
+            total++;
+    printf ("  %zu enregistrement(s) dans le cache de /db, les %ld derniers :\n",
+            total, max);
+    size_t skip = total > (size_t) max ? total - (size_t) max : 0;
+    size_t i = 0, shown = 0;
+    for (char *line = strtok (cache, "\n"); line != NULL;
+         line = strtok (NULL, "\n"))
+      {
+        if (i++ < skip)
+            continue;
+        char url[2048] = "", sum[65] = "";
+        (void) inf_json_str_field (line, "source_url", url, sizeof url);
+        (void) inf_json_str_field (line, "checksum", sum, sizeof sum);
+        printf ("    %s  [%s]\n", url[0] != '\0' ? url : "(sans url)",
+                sum[0] != '\0' ? sum : "?");
+        if (++shown >= (size_t) max)
+            break;
+      }
+}
+
+void
+cmd_db (const char *arg)
+{
+    char sub[16] = "";
+    const char *rest = "";
+    if (arg != NULL && *arg != '\0')
+      {
+        int nf = sscanf (arg, "%15s", sub);
+        if (nf == 1)
+          {
+            rest = arg + strlen (sub);
+            while (*rest == ' ')
+                rest++;
+          }
+      }
+    if (sub[0] == '\0' || strcmp (sub, "status") == 0)
+        db_status ();
+    else if (strcmp (sub, "search") == 0)
+      {
+        if (*rest == '\0')
+          {
+            printf ("  usage: /db search MOT [MOT...]\n");
+            return;
+          }
+        db_search (rest);
+      }
+    else if (strcmp (sub, "list") == 0)
+        db_list (rest);
+    else if (strcmp (sub, "count") == 0)
+      {
+        static char cache[4 * 1024 * 1024];
+        ssize_t n = load_training_cache (cache, sizeof cache);
+        size_t total = 0;
+        if (n > 0)
+            for (const char *p = cache; *p != '\0'; p++)
+                if (*p == '\n')
+                    total++;
+        printf ("  %zu enregistrement(s) d'entraînement (cache local de /db)\n",
+                total);
+      }
+    else
+        printf ("  usage: /db status | /db search MOT... | /db list [N] | /db count\n");
+}
+
+/* hf_train — /entrainement hf://... [dir]: download every file of the
+   hf:// repo into localdir (default ./data, like `hf sync ./data hf://…`),
+   then feed the content of each file through the neuron translator and
+   store {input, output, neuron} records in /db + the local cache. */
+static void
+hf_train (const char *hfurl, const char *localdir)
+{
+    char kind[16], owner[256], repo[256], prefix[1024];
+    if (!inf_hf_parse (hfurl, kind, sizeof kind, owner, sizeof owner,
+                       repo, sizeof repo, prefix, sizeof prefix))
+      {
+        printf ("  URL hf:// invalide (attendu: hf://buckets|datasets|models/<owner>/<repo>[/prefix])\n");
+        return;
+      }
+    char q[2100];
+    char cmd[4400];
+    shell_quote (q, sizeof q, localdir);
+    snprintf (cmd, sizeof cmd, "mkdir -p %s", q);
+    if (system (cmd) != 0)
+      {
+        printf ("  impossible de créer %s\n", localdir);
+        return;
+      }
+
+    static char llms[16][32];
+    int nllm = 0;
+    unsigned in_size = 0;
+    train_neurons_or_die (llms, &nllm, &in_size);
+    if (nllm == 0)
+        return;
+
+    long status;
+    char *tree = hf_fetch_list (hfurl, &status);
+    if (tree == NULL)
+        return;
+    size_t n = inf_json_array_count (tree);
+    size_t nfiles = 0, nrec = 0;
+    printf ("  /entrainement de %s vers %s (%zu entrée(s)), via %d neurone(s)\n",
+            hfurl, localdir, n, nllm);
+    for (size_t i = 0; i < n && i < 200; i++)
+      {
+        char obj[4096];
+        if (inf_json_array_object (tree, i, obj, sizeof obj) == 0)
+            break;
+        char path[1024] = "", type[32] = "";
+        (void) inf_json_str_field (obj, "path", path, sizeof path);
+        (void) inf_json_str_field (obj, "type", type, sizeof type);
+        if (strcmp (type, "file") != 0 || !path_safe (path))
+            continue;
+        char resolve[2048];
+        if (inf_hf_resolve_url (hfurl, path, resolve, sizeof resolve) == 0)
+            continue;
+        char *body;
+        size_t blen;
+        long fstatus;
+        if (fetch_url (resolve, &fstatus, &body, &blen) != 0)
+            continue;
+        print_http_status (fstatus);
+        if (fstatus < 200 || fstatus >= 300)
+          {
+            free (body);
+            continue;
+          }
+        /* local copy under localdir (path traversal rejected by path_safe) */
+        char lp[4200];
+        snprintf (lp, sizeof lp, "%s/%s", localdir, path);
+        char *slash;
+        for (slash = lp + strlen (localdir); *slash != '\0'; slash++)
+            if (*slash == '/' && slash[1] != '\0')
+              {
+                *slash = '\0';
+                mkdir (lp, 0755);
+                *slash = '/';
+              }
+        int fd = open (lp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0)
+          {
+            size_t off = 0;
+            while (off < blen)
+              {
+                ssize_t wn = write (fd, body + off, blen - off);
+                if (wn <= 0)
+                    break;
+                off += (size_t) wn;
+              }
+            close (fd);
+          }
+        char text[262144];
+        inf_html_to_text (text, sizeof text, body);
+        free (body);
+        if (text[0] != '\0')
+            nrec += train_text (resolve, fstatus, text, llms, nllm, in_size);
+        nfiles++;
+        printf ("  [%zu/%zu] %s -> %s (%zu octets)\n", nfiles, n, path, lp,
+                blen);
+      }
+    free (tree);
+    printf ("  /entrainement terminé: %zu fichier(s), %zu enregistrement(s) "
+            "dans /db\n", nfiles, nrec);
 }

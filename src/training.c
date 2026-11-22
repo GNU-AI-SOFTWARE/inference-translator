@@ -203,3 +203,301 @@ inf_training_search (const char *ndjson, const char *query,
     out[l] = '\0';
     return l;
 }
+
+size_t
+inf_training_search_list (const char *ndjson, const char *query,
+                          char *out, size_t outsz, size_t max_hits)
+{
+    if (out == NULL || outsz == 0)
+        return 0;
+    out[0] = '\0';
+    if (ndjson == NULL || query == NULL || *query == '\0')
+        return 0;
+    size_t hits = 0;
+    size_t w = 0;
+    const char *p = ndjson;
+    while (*p != '\0' && hits < max_hits)
+      {
+        const char *eol = strchr (p, '\n');
+        size_t llen = eol != NULL ? (size_t) (eol - p) : strlen (p);
+        if (llen > 0)
+          {
+            char line[300000];
+            if (llen < sizeof line)
+              {
+                memcpy (line, p, llen);
+                line[llen] = '\0';
+                char content[262144];
+                if (inf_json_str_field (line, "content", content,
+                                        sizeof content) == 0
+                    && training_score (content, query) > 0)
+                  {
+                    if (w + llen + 2 >= outsz)
+                        break;
+                    memcpy (out + w, line, llen);
+                    w += llen;
+                    out[w++] = '\n';
+                    hits++;
+                  }
+              }
+          }
+        p = eol != NULL ? eol + 1 : p + llen;
+      }
+    if (w >= outsz)
+        w = outsz - 1;
+    out[w] = '\0';
+    return hits;
+}
+
+/* --- /hf: Hugging Face hf:// URLs over plain HTTP --------------------- */
+
+bool
+inf_hf_parse (const char *hfurl, char *kind, size_t kindsz,
+              char *owner, size_t osz, char *repo, size_t rsz,
+              char *path, size_t psz)
+{
+    if (hfurl == NULL || strncmp (hfurl, "hf://", 5) != 0)
+        return false;
+    const char *p = hfurl + 5;
+    const char *slash1 = strchr (p, '/');
+    if (slash1 == NULL)
+        return false;
+    size_t klen = (size_t) (slash1 - p);
+    if (klen == 0 || klen >= kindsz)
+        return false;
+    memcpy (kind, p, klen);
+    kind[klen] = '\0';
+    if (strcmp (kind, "buckets") != 0 && strcmp (kind, "datasets") != 0
+        && strcmp (kind, "models") != 0)
+        return false;
+    p = slash1 + 1;
+    const char *slash2 = strchr (p, '/');
+    if (slash2 == NULL)
+        return false;
+    size_t olen = (size_t) (slash2 - p);
+    if (olen == 0 || olen >= osz)
+        return false;
+    memcpy (owner, p, olen);
+    owner[olen] = '\0';
+    p = slash2 + 1;
+    const char *slash3 = strchr (p, '/');
+    size_t rlen = slash3 != NULL ? (size_t) (slash3 - p) : strlen (p);
+    if (rlen == 0 || rlen >= rsz)
+        return false;
+    memcpy (repo, p, rlen);
+    repo[rlen] = '\0';
+    const char *sub = slash3 != NULL ? slash3 + 1 : "";
+    size_t plen = strlen (sub);
+    if (plen >= psz)
+        return false;
+    memcpy (path, sub, plen + 1);
+    return true;
+}
+
+size_t
+inf_hf_api_url (const char *hfurl, char *out, size_t outsz)
+{
+    char kind[16], owner[256], repo[256], path[1024];
+    if (!inf_hf_parse (hfurl, kind, sizeof kind, owner, sizeof owner,
+                       repo, sizeof repo, path, sizeof path))
+        return 0;
+    const char *base = "https://huggingface.co/api/%s/%s/%s/tree/main?recursive=true";
+    char url[2048];
+    int n;
+    if (strcmp (kind, "buckets") == 0)
+        n = snprintf (url, sizeof url, base, "buckets", owner, repo);
+    else if (strcmp (kind, "datasets") == 0)
+        n = snprintf (url, sizeof url, base, "datasets", owner, repo);
+    else
+        n = snprintf (url, sizeof url, base, "models", owner, repo);
+    if (n < 0 || (size_t) n >= sizeof url)
+        return 0;
+    if (path[0] != '\0')
+        {
+            char q[1100];
+            inf_json_escape (path, q, sizeof q);   /* not a JSON field, but
+                                                      URL-safe-ish escaping of
+                                                      control chars/quotes */
+            int m = snprintf (url + n, sizeof url - (size_t) n,
+                              "&prefix=%s", q);
+            if (m < 0 || (size_t) m >= sizeof url - (size_t) n)
+                return 0;
+            n += m;
+        }
+    if ((size_t) n >= outsz)
+        n = (int) outsz - 1;
+    memcpy (out, url, (size_t) n);
+    out[n] = '\0';
+    return (size_t) n;
+}
+
+size_t
+inf_hf_resolve_url (const char *hfurl, const char *path, char *out,
+                    size_t outsz)
+{
+    char kind[16], owner[256], repo[256], sub[1024];
+    if (!inf_hf_parse (hfurl, kind, sizeof kind, owner, sizeof owner,
+                       repo, sizeof repo, sub, sizeof sub))
+        return 0;
+    if (path == NULL || *path == '\0')
+        return 0;
+    const char *fmt;
+    if (strcmp (kind, "buckets") == 0)
+        fmt = "https://huggingface.co/buckets/%s/%s/resolve/main/%s";
+    else if (strcmp (kind, "datasets") == 0)
+        fmt = "https://huggingface.co/datasets/%s/%s/resolve/main/%s";
+    else
+        fmt = "https://huggingface.co/%s/%s/resolve/main/%s";
+    char url[2048];
+    int n = snprintf (url, sizeof url, fmt, owner, repo, path);
+    if (n < 0 || (size_t) n >= sizeof url)
+        return 0;
+    if ((size_t) n >= outsz)
+        n = (int) outsz - 1;
+    memcpy (out, url, (size_t) n);
+    out[n] = '\0';
+    return (size_t) n;
+}
+
+/* --- JSON top-level array helpers (HF tree API) ------------------------ */
+
+/* Skip whitespace; return the pointer past it. */
+static const char *
+js_ws (const char *p)
+{
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
+        p++;
+    return p;
+}
+
+/* Copy one JSON value (object, array, string, number, literal) starting
+   at P into OUT; returns the pointer just past the value, or NULL. */
+static const char *
+js_value (const char *p, char *out, size_t outsz, size_t *w)
+{
+    p = js_ws (p);
+    if (*p == '\0')
+        return NULL;
+    if (*p == '{' || *p == '[')
+      {
+        char open = *p, close = open == '{' ? '}' : ']';
+        int depth = 0;
+        const char *start = p;
+        bool instr = false, esc = false;
+        for (; *p != '\0'; p++)
+          {
+            char c = *p;
+            if (instr)
+              {
+                if (esc)
+                    esc = false;
+                else if (c == '\\')
+                    esc = true;
+                else if (c == '"')
+                    instr = false;
+              }
+            else if (c == '"')
+                instr = true;
+            else if (c == open)
+                depth++;
+            else if (c == close)
+              {
+                depth--;
+                if (depth == 0)
+                  {
+                    p++;
+                    break;
+                  }
+              }
+          }
+        size_t l = (size_t) (p - start);
+        if (*w + l >= outsz)
+            l = outsz - 1 - *w;
+        memcpy (out + *w, start, l);
+        *w += l;
+        out[*w] = '\0';
+        return p;
+      }
+    /* scalar: string, number, true/false/null */
+    const char *start = p;
+    if (*p == '"')
+      {
+        p++;
+        while (*p != '\0' && (*p != '"' || p[-1] == '\\'))
+            p++;
+        if (*p == '"')
+            p++;
+      }
+    else
+      {
+        while (*p != '\0' && *p != ',' && *p != ']' && *p != '}'
+               && *p != ' ' && *p != '\n' && *p != '\r')
+            p++;
+      }
+    size_t l = (size_t) (p - start);
+    if (*w + l >= outsz)
+        l = outsz - 1 - *w;
+    memcpy (out + *w, start, l);
+    *w += l;
+    out[*w] = '\0';
+    return p;
+}
+
+size_t
+inf_json_array_count (const char *json)
+{
+    if (json == NULL)
+        return 0;
+    const char *p = js_ws (json);
+    if (*p != '[')
+        return 0;
+    p++;
+    size_t n = 0;
+    char tmp[8];
+    for (;;)
+      {
+        p = js_ws (p);
+        if (*p == ']')
+            break;
+        if (*p == '\0')
+            break;
+        size_t w = 0;
+        p = js_value (p, tmp, sizeof tmp, &w);
+        if (p == NULL)
+            break;
+        n++;
+        p = js_ws (p);
+        if (*p == ',')
+            p++;
+      }
+    return n;
+}
+
+size_t
+inf_json_array_object (const char *json, size_t idx, char *out, size_t outsz)
+{
+    if (json == NULL || out == NULL || outsz == 0)
+        return 0;
+    out[0] = '\0';
+    const char *p = js_ws (json);
+    if (*p != '[')
+        return 0;
+    p++;
+    size_t n = 0;
+    for (;;)
+      {
+        p = js_ws (p);
+        if (*p == ']' || *p == '\0')
+            return 0;
+        size_t w = 0;
+        const char *next = js_value (p, out, outsz, &w);
+        if (next == NULL)
+            return 0;
+        if (n == idx)
+            return w;
+        n++;
+        p = js_ws (next);
+        if (*p == ',')
+            p++;
+      }
+}

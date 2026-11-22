@@ -394,6 +394,12 @@ inf_url_valid (const char *url)
 /* --- URL host extraction + /etc/hosts lookup (auto-DNS) --------------- */
 
 bool
+inf_hf_url (const char *url)
+{
+    return url != NULL && strncmp (url, "hf://", 5) == 0;
+}
+
+bool
 inf_url_host (const char *url, char *host, size_t hostsz)
 {
     if (url == NULL || host == NULL || hostsz == 0)
