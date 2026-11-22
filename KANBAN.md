@@ -14,6 +14,11 @@ Dérivé du [`PLAN.md`](PLAN.md). Chaque carte est préfixée par sa
 phase ; les critères d'acceptation de chaque phase sont dans le plan.
 
 ## À faire
+### Phase 8 — Session distante de production (post-v1.0)
+- [ ] Reconnexion/reprise : trame `request` rejouée sans doublon en base après coupure
+- [ ] Multi-utilisateurs simultanés (un `inference-serveur` par session SSH, registre de clés pour N utilisateurs)
+- [ ] IHM de production : progrès de la requête, état du cluster depuis `/orchestrate`
+
 
 ### Phase 3 — Interface riche : couleurs, animations, streaming
 - [ ] Mode cluster : le trio JSON transite par un canal SSH minimal vers l'orchestrateur d'un cluster Hurd (2 à 5 nœuds) — reporté avec la phase 5 (mode distant)

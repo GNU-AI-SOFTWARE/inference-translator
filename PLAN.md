@@ -529,6 +529,23 @@ phases sont prioritaires.
   et architecture (`docs/architecture.md`).
 - **Livrable** : version 1.0.
 
+### Phase 8 — Session distante de production (post-v1.0)
+
+- Reconnexion et reprise : une coupure réseau en cours de requête ne
+  perd pas la requête — la trame `request` est rejouée et la session
+  reprend là où elle en était (l'état persistant reste dans
+  PostgreSQL, jamais dans le client ; pas de doublon en base).
+- Plusieurs utilisateurs simultanés côté serveur : un
+  `inference-serveur` par session SSH (phase 5), sans interférence ;
+  le registre de clés sert N utilisateurs nommés à la fois.
+- IHM de production : progrès de la requête en cours, état du cluster
+  et des instances affiché depuis `/orchestrate`, reprise de session
+  après reconnexion.
+- **Livrable** : client distant de production, version 1.1.
+- **Acceptation** : coupure + reconnexion → même résultat, requête non
+  dupliquée en base ; 2+ utilisateurs simultanés, résultats identiques
+  à l'exécution isolée ; aucun port ouvert hors sshd.
+
 ---
 
 ## 6. Contraintes et conventions techniques
@@ -602,6 +619,7 @@ phases sont prioritaires.
 | 5 | Mode distant : SSH, serveur par session, clés révocables, cluster | 0, 4 |
 | 6 | Historique, `replay`, sessions | 2–4 |
 | 7 | Durcissement, CI Hurd, v1.0 | 1–6 |
+| 8 | Production distante : reconnexion/reprise, multi-utilisateurs, v1.1 | 5, 7 | orchestrateur phase 7 |
 
 La phase 1 de ce dépôt est un prérequis direct de la phase 3 de
 `orchestrator-translator` (acquisition réseau) : les deux fils de
