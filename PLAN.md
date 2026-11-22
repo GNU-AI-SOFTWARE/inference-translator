@@ -546,6 +546,99 @@ phases sont prioritaires.
   dupliquée en base ; 2+ utilisateurs simultanés, résultats identiques
   à l'exécution isolée ; aucun port ouvert hors sshd.
 
+### Phase 9 — Prompt `>` ancré dans `/db` : la réponse du LLM imposée par les données d'entraînement
+
+- **Extension versionnée du contrat** (le trio de la section 3.3 reste
+  valide ; les champs ajoutés sont optionnels et annoncés par
+  `/inference/version`) :
+  - type 1 `request` : `params.grounded` (booléen) et
+    `params.context` (tableau d'extraits
+    `{ "source_url": …, "checksum": …, "excerpt": … }`, borné par
+    `params.max_excerpts`) ; la tâche passe à `answer` ;
+  - type 3 `result` : `sources` (tableau `{ "source_url", "checksum" }`
+    cités par l'agrégation) et `grounded` (`true` | `false` | `"empty"`
+    quand aucun extrait de `/db` ne correspond — jamais
+    d'hallucination silencieuse).
+- **Côté client** : au prompt `>`, un prompt préfixé par `?` (ex.
+  `? quelle est la procédure de sauvegarde`) ou la commande
+  `/grounded [question]` déclenche l'ancrage : recherche par mots-clés
+  dans `/db/training_data` (lecture POSIX paginée, dédup par checksum),
+  écriture de `/inference/params` (`grounded` + `context`), puis
+  soumission classique ; narration `→ search /db/training_data …` puis
+  `→ write /inference/params`. Sans préfixe, le prompt `>` reste libre.
+- **Équivalent POSIX pur** :
+  `echo '{"grounded": true}' | tee /inference/params` puis
+  `echo "…" | tee /inference/prompt` puis `cat /inference/request`.
+- **Réponse produite par le neurone** : la réponse n'est pas une chaîne
+  retrouvée dans `/db`, elle est **calculée par `neuron-translator`**
+  sur le matériau d'ancrage — exactement comme le fait déjà
+  `/entrainement` (`collect_neurons` sur `/llm1…N`,
+  `inf_text_to_vector`, `write input`, lecture de la section `Output:`
+  via `inf_parse_neuron_output`) : le prompt `?` et les extraits
+  retenus de `/db` sont vectorisés (même `inf_text_to_vector` que
+  `/entrainement`), écrits dans `input` de chaque `/llm1…N`, et la
+  sortie lue du neurone constitue la réponse ; les enregistrements
+  `/entrainement` (champ `output` de `training_data`) servent de
+  référence. La paire {prompt, context, sortie} produite est
+  réenregistrée dans `/db` (`training_data`) — la boucle
+  d'apprentissage se ferme.
+- **Côté orchestrateur** (fil des phases 3 et 5) : `params.context`
+  est distribué aux N instances `/llm1…N` — l'entrée de chaque neurone
+  est le prompt **plus** les extraits de `/db` vectorisés ;
+  l'agrégateur (vote majoritaire / moyenne, phase 1) combine les
+  sorties des neurones et exige les citations `sources` quand
+  `grounded` est vrai.
+- **Livrable** : contrat gelé (mise à jour de `SPEC.md`), client,
+  translator et orchestrateur implémentés, tests POSIX
+  (`make check` vert).
+- **Acceptation** : avec un corpus connu chargé par
+  `/learn`/`/entrainement` (donc présent dans `/db/training_data`), un
+  prompt `? …` produit une réponse du LLM fondée uniquement sur ces
+  données, avec `sources` citant `source_url` + checksum vérifiables
+  (`cat /db/training_data/<id>`) ; sans correspondance, le résultat
+  porte `grounded: "empty"` ; démo sur Debian GNU/Hurd (QEMU).
+- **Dépend de** : data-base phase 3 (`training_data` servie en lecture
+  paginée) et orchestrator phases 3–5.
+
+### Phase 10 — `/db` source de vérité pour `/reply` et la recherche
+
+- `/reply [question]` interroge directement `/db` (recherche par
+  mots-clés servie par `data-base-translator`, lecture paginée de
+  `/db/training_data`) au lieu du seul cache local NDJSON ; la réponse
+  est la **sortie du neurone** — champ `output` des enregistrements
+  `/entrainement`, ou ré-exécution de `/llm1…N` sur les extraits
+  retrouvés (`inf_text_to_vector` → `write input` → lecture `Output:`)
+  ; ce cache, rempli par `/learn`, `/learn-code`, `/entrainement` et
+  `/hf sync`, n'est plus qu'un **miroir en lecture** de
+  `training_data`.
+- `/db search MOT…` sert la base elle-même ; `/db list [N]` et
+  `/db count` lisent `/db` directement.
+- **Livrable** : client réaligné, `SPEC.md` et page de manuel mis à
+  jour.
+- **Acceptation** : cache local vidé
+  (`rm "$HOME/.inference-training.ndjson"`), `/reply` répond toujours
+  depuis `/db` ; chaque réponse citée est relisible en POSIX pur via
+  `/db/training_data/<id>`.
+- **Dépend de** : phase 9 + data-base phase 7 (lectures paginées
+  bornées de `training_data`).
+
+### Phase 11 — Fidélité, métriques de grounding et boucle de mesure
+
+- Métriques persistées via `/db` et exposées dans `/db/status` :
+  taux de réponses `grounded: true` avec `sources` résolubles
+  (checksum vérifié côté `data-base-translator`), taux
+  `grounded: "empty"`, latence de la recherche, nombre d'extraits
+  injectés.
+- L'évaluateur de l'orchestrateur (phase 5, puis phase 7) pénalise
+  les sorties d'instances non ancrées quand `grounded` est vrai et
+  pondère l'agrégation en conséquence.
+- **Livrable** : métriques dans `/db/status`, politique de pénalité
+  dans l'agrégation, documentation.
+- **Acceptation** : sur un jeu étiqueté, la réponse ancrée bat la
+  réponse libre en fidélité mesurée (citations résolubles) ; toutes
+  les métriques sont lisibles en POSIX pur (`cat /db/status`).
+- **Dépend de** : phases 9–10 + orchestrator phase 5.
+
 ---
 
 ## 6. Contraintes et conventions techniques
@@ -620,6 +713,9 @@ phases sont prioritaires.
 | 6 | Historique, `replay`, sessions | 2–4 |
 | 7 | Durcissement, CI Hurd, v1.0 | 1–6 |
 | 8 | Production distante : reconnexion/reprise, multi-utilisateurs, v1.1 | 5, 7 | orchestrateur phase 7 |
+| 9 | Prompt `>` ancré dans `/db` : grounding, citations, `grounded:"empty"` | 0, 3 | data-base 3, orchestrateur 3–5 |
+| 10 | `/reply` et recherche servis par `/db` (source de vérité) | 9 | data-base 7 |
+| 11 | Fidélité, métriques de grounding, pénalité de l'évaluateur | 9–10 | orchestrateur 5 |
 
 La phase 1 de ce dépôt est un prérequis direct de la phase 3 de
 `orchestrator-translator` (acquisition réseau) : les deux fils de

@@ -18,7 +18,7 @@ dépendances croisées (section « Jalons » de chaque PLAN.md).
 | `httpfs-translator` | En cours : phases 2–3 faites (transport + htmlfs/jsonfs/csvfs) | 1 (CI) + fin 3 (cluster) + 4 |
 | `data-base-translator` | Pas de code (PLAN.md seulement) | **0 à coder en premier** |
 | `orchestrator-translator` | Pas de code (PLAN.md seulement) | **0, juste après data-base** |
-| `inference-translator` | Pas de code (PLAN.md seulement) | 0–1, fil parallèle |
+| `inference-translator` | v1.0.0 (phases 0–3 faites : translator, client, entraînement `/db`) | 9–11 (ancrage du prompt `>` dans `/db`) |
 
 ## 2. Ordre de priorité — translators à coder en premier
 
@@ -207,7 +207,55 @@ contrat de `neuron-translator` reste gelé en v1.0 (format `.nn`,
       la moyenne uniforme ; `watch` et statuts lisibles en POSIX pur ;
       métriques de la base accessibles sans outil externe.
 
-## 10. Règles transverses (rappels des PLAN.md)
+## 10. P7 — Ancrage du prompt `>` dans `/db` (post-v1.1)
+
+Un prompt saisi au prompt `>` de `inference` impose que la réponse du
+LLM soit fonction des données d'entraînement contenues dans `/db`
+(`training_data`) : recherche par mots-clés dans `/db`, extraits
+injectés dans la requête type 1 (`params.grounded`, `params.context`),
+réponse des neurones contrainte à ces extraits, citations
+(`source_url` + checksum) dans le résultat type 3.
+
+- [ ] **inference-translator phase 9** — grounding du prompt `>` :
+      préfixe `?` ou `/grounded [question]` → recherche dans
+      `/db/training_data` → `write /inference/params`
+      (`grounded` + `context`) → `/submit` ; la réponse est **calculée
+      par le neurone** sur les extraits de `/db` (comme `/entrainement`
+      : `inf_text_to_vector` → `write /llm1…N/input` → lecture
+      `Output:`), paire {prompt, context, sortie} réenregistrée dans
+      `/db` ; équivalent POSIX pur ; extension versionnée des contrats
+      (types 1 et 3 : `params.grounded`, `params.context`,
+      `result.sources`, `result.grounded`) ; `SPEC.md` + tests POSIX +
+      `make check` vert.
+- [ ] **neuron-translator** : aucune évolution de contrat requise
+      (v1.0 gelé : `input` / section `Output:`) — la réponse ancrée
+      réutilise `inf_text_to_vector` + `write /llmK/input` côté client,
+      comme `/entrainement` et `/sigmoid`.
+- [ ] **orchestrator-translator** (fil des phases 3/5) : distribuer
+      `params.context` aux N instances `/llm1…N` ; exiger et agréger
+      les citations `sources` quand `grounded` est vrai ; statut
+      `grounded: "empty"` sans correspondance.
+- [ ] **data-base-translator phase 7** : lecture paginée bornée de
+      `training_data` + recherche par mots-clés servie depuis `/db`
+      (curseur POSIX), métriques de grounding dans `/db/status`
+      (taux de citations résolubles, `empty`, latence).
+- [ ] **inference-translator phase 10** — `/reply` réaligné sur `/db`
+      comme source de vérité, réponse = sortie du neurone (champ
+      `output` de `training_data`, ou ré-exécution de `/llm1…N` sur les
+      extraits trouvés) ; le cache NDJSON local n'est plus qu'un miroir
+      en lecture ; `/db search MOT…` servi par la base.
+- [ ] **inference-translator phase 11** — fidélité et métriques :
+      l'évaluateur pénalise les réponses non ancrées quand
+      `grounded: true` ; métriques lisibles en POSIX pur
+      (`cat /db/status`).
+- [ ] **Acceptation globale** : corpus connu chargé via
+      `/learn`/`/entrainement` ; un prompt `? …` au prompt `>` produit
+      une réponse du LLM fondée uniquement sur `/db` avec citations
+      checksum vérifiables (`cat /db/training_data/<id>`) ; sans
+      correspondance, `grounded: "empty"` ; sur un jeu étiqueté, la
+      réponse ancrée bat la réponse libre en fidélité mesurée.
+
+## 11. Règles transverses (rappels des PLAN.md)
 
 - C23 / POSIX.1-2008, `trivfs` pour les MVP puis `netfs`.
 - Harnais maison (`CHECK`, `make check`), zéro framework externe.

@@ -14,6 +14,24 @@ Dérivé du [`PLAN.md`](PLAN.md). Chaque carte est préfixée par sa
 phase ; les critères d'acceptation de chaque phase sont dans le plan.
 
 ## À faire
+### Phase 11 — Fidélité, métriques de grounding et boucle de mesure
+- [ ] Métriques de grounding dans `/db/status` (citations résolubles, `empty`, latence) — servies par data-base phase 7
+- [ ] Pénalité des sorties non ancrées par l'évaluateur quand `grounded: true` (orchestrateur phase 5/7)
+- [ ] Acceptation : sur jeu étiqueté, réponse ancrée > réponse libre en fidélité mesurée ; métriques lisibles en POSIX pur
+
+### Phase 10 — `/db` source de vérité pour `/reply` et la recherche
+- [ ] `/reply [question]` : réponse = sortie du neurone (champ `output` de `/db`, ou ré-exécution de `/llm1…N` sur les extraits trouvés) ; interroge `/db/training_data` directement (cache NDJSON local = simple miroir en lecture)
+- [ ] `/db search MOT…|list [N]|count` servis par la base (data-base phase 7, lectures paginées bornées)
+- [ ] Acceptation : cache local vidé → `/reply` répond toujours depuis `/db` ; `cat /db/training_data/<id>` vérifie la citation
+
+### Phase 9 — Prompt `>` ancré dans `/db` (grounding)
+- [ ] Extension versionnée des contrats : `request.params.grounded` + `params.context`, `result.sources` + `result.grounded` (`"empty"` si rien dans `/db`)
+- [ ] Client : préfixe `?` au prompt `>` ou `/grounded [question]` → recherche par mots-clés dans `/db/training_data` → `write /inference/params` → `/submit`
+- [ ] Équivalent POSIX pur : `echo '{"grounded":true}' > /inference/params` + `echo … > /inference/prompt`
+- [ ] Réponse calculée par le neurone : prompt `?` + extraits `/db` vectorisés (`inf_text_to_vector`) → `write /llm1…N/input` → lecture `Output:` (`inf_parse_neuron_output`), comme `/entrainement` ; paire {prompt, context, sortie} réenregistrée dans `/db`
+- [ ] Orchestrateur : `params.context` distribué aux N instances `/llm1…N`, sorties des neurones agrégées (vote majoritaire), citations `sources` exigées quand `grounded`
+- [ ] Acceptation : prompt `? …` → réponse du LLM fondée uniquement sur `/db` avec `source_url`+checksum ; sans correspondance, `grounded: "empty"` ; `make check` vert
+
 ### Phase 8 — Session distante de production (post-v1.0)
 - [ ] Reconnexion/reprise : trame `request` rejouée sans doublon en base après coupure
 - [ ] Multi-utilisateurs simultanés (un `inference-serveur` par session SSH, registre de clés pour N utilisateurs)
