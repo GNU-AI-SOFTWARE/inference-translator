@@ -310,16 +310,28 @@ main (void)
     char api[2048];
     inf_hf_api_url ("hf://buckets/clairemariecoralie/cyber-security-bucket",
                    api, sizeof api);
-    check ("hf api url for buckets",
-           strcmp (api, "https://huggingface.co/api/buckets/clairemariecoralie/cyber-security-bucket/tree/main?recursive=true") == 0);
+    check ("hf api url for buckets (revision-less: no /main)",
+           strcmp (api, "https://huggingface.co/api/buckets/clairemariecoralie/cyber-security-bucket/tree?recursive=true") == 0);
+    inf_hf_api_url ("hf://buckets/o/b/dir", api, sizeof api);
+    check ("hf api url for bucket with prefix",
+           strcmp (api, "https://huggingface.co/api/buckets/o/b/tree?recursive=true&prefix=dir") == 0);
+    inf_hf_api_url ("hf://datasets/org/ds", api, sizeof api);
+    check ("hf api url for datasets keeps /tree/main",
+           strcmp (api, "https://huggingface.co/api/datasets/org/ds/tree/main?recursive=true") == 0);
     char rurl[2048];
     inf_hf_resolve_url ("hf://buckets/clairemariecoralie/cyber-security-bucket",
                         "data/a.txt", rurl, sizeof rurl);
-    check ("hf resolve url for bucket file",
-           strcmp (rurl, "https://huggingface.co/buckets/clairemariecoralie/cyber-security-bucket/resolve/main/data/a.txt") == 0);
+    check ("hf resolve url for bucket file (revision-less: no /main)",
+           strcmp (rurl, "https://huggingface.co/buckets/clairemariecoralie/cyber-security-bucket/resolve/data/a.txt") == 0);
     inf_hf_resolve_url ("hf://datasets/org/ds", "f.bin", rurl, sizeof rurl);
     check ("hf resolve url for dataset file",
            strcmp (rurl, "https://huggingface.co/datasets/org/ds/resolve/main/f.bin") == 0);
+    check ("hf path prefix match (buckets ignore server-side prefix)",
+           inf_hf_path_match ("", "anything") && inf_hf_path_match (NULL, "x")
+           && inf_hf_path_match ("dir", "dir/a.txt")
+           && inf_hf_path_match ("adversarial-ml.json", "adversarial-ml.json")
+           && !inf_hf_path_match ("dir", "other/a.txt")
+           && !inf_hf_path_match ("dir", NULL));
 
     /* --- JSON array helpers (HF tree API) -------------------------------- */
 

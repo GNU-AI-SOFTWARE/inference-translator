@@ -341,7 +341,12 @@ faux arbre).
     (`/hf sync hf://buckets/... ./local` : téléchargement par l'endpoint
     `resolve` `inf_hf_resolve_url`, copie locale, puis conversion de chaque
     fichier en enregistrements `/db` `training_data` — découpage, SHA-256,
-    `inf_training_record` — et cache local) ;
+    `inf_training_record` — et cache local) ; les buckets (`hf://buckets/…`)
+    sont sans révision : l'arbre se liste via `…/api/buckets/<o>/<r>/tree?recursive=true`
+    (sans `/main`, qui répond `[]`) et le téléchargement via
+    `…/buckets/<o>/<r>/resolve/<path>` (sans `/main`, qui 404) ; le `prefix`
+    étant ignoré côté serveur pour les buckets, le filtrage de sous-chemin est
+    appliqué côté client (`inf_hf_path_match`) ;
   - `/db status|search MOT|list [N]|count` : exploration de la base —
     `status` écrit `{"status": true}` sur `/db` et affiche la réponse ;
     `search`/`list`/`count` parcourent le cache local (miroir NDJSON de
@@ -363,8 +368,8 @@ faux arbre).
 gcc -std=c23 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
     -Iinclude -o /tmp/test_client tests/test_client.c \
     src/contract.c src/expr.c src/actions.c src/spinner.c src/fs.c src/client-core.c \
-    src/training.c src/text.c src/stats.c src/jsonlite.c src/history.c
-/tmp/test_client                    # cœur pur du client (106/106)
+    src/training.c src/text.c src/stats.c src/jsonlite.c src/history.c src/neuron.c -lm
+/tmp/test_client                    # cœur pur du client (109/109)
 ./autogen.sh && ./configure && make && make check   # + test_client.sh (pty via script(1))
 sh tests/test_client.sh src/inference
 # Sur GNU/Hurd avec le translator monté, en interactif (console série) :

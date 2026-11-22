@@ -102,6 +102,14 @@ par un bump de `version`.
 - **Mémoire affichée à 100 % sur Hurd** : les pages `inactive` de Mach sont
   désormais comptabilisées comme disponibles (`free_count + inactive_count`)
   dans `/stats` **et** dans la ligne d'information au-dessus du prompt.
+- **`hf://buckets/…` cassé côté URLs** : les buckets HF sont sans révision —
+  `/api/buckets/<o>/<r>/tree/main` répond `[]` et
+  `/buckets/<o>/<r>/resolve/main/…` répond 404. `inf_hf_api_url` utilise
+  désormais `…/api/buckets/<o>/<r>/tree?recursive=true` et `inf_hf_resolve_url`
+  `…/buckets/<o>/<r>/resolve/<path>` pour `buckets` (datasets/models gardent
+  `/tree/main` et `/resolve/main`). Le paramètre `prefix` étant ignoré par
+  l'endpoint bucket, le filtrage de sous-chemin est appliqué côté client
+  (`inf_hf_path_match`) dans `/hf list`, `/hf sync` et `/entrainement hf://…`.
 - **Narration des chemins absolus** (`/sigmoid`, `/entrainement` sur
   `/llmN`) : `narrate()` préfixait `g_mount` (`→ read /inference//llm1`) ;
   nouvelle helper `narrate_path()` pour les chemins hors montage.

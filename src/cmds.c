@@ -1289,6 +1289,10 @@ hf_fetch_list (const char *hfurl, long *out_status)
 static void
 hf_list (const char *hfurl)
 {
+    char kind[16], owner[256], repo[256], prefix[1024];
+    if (!inf_hf_parse (hfurl, kind, sizeof kind, owner, sizeof owner,
+                       repo, sizeof repo, prefix, sizeof prefix))
+        return;
     long status;
     char *tree = hf_fetch_list (hfurl, &status);
     if (tree == NULL)
@@ -1305,6 +1309,8 @@ hf_list (const char *hfurl)
         (void) inf_json_str_field (obj, "path", path, sizeof path);
         (void) inf_json_str_field (obj, "type", type, sizeof type);
         (void) inf_json_num_field (obj, "size", &size);
+        if (!inf_hf_path_match (prefix, path))
+            continue;
         printf ("    %-6s %8.0f  %s\n", type, size, path);
       }
     free (tree);
@@ -1390,6 +1396,8 @@ hf_sync (const char *hfurl, const char *localdir)
         char path[1024] = "", type[32] = "";
         (void) inf_json_str_field (obj, "path", path, sizeof path);
         (void) inf_json_str_field (obj, "type", type, sizeof type);
+        if (!inf_hf_path_match (prefix, path))
+            continue;
         if (strcmp (type, "file") != 0 || !path_safe (path))
             continue;
         char resolve[2048];
@@ -1704,6 +1712,8 @@ hf_train (const char *hfurl, const char *localdir)
         char path[1024] = "", type[32] = "";
         (void) inf_json_str_field (obj, "path", path, sizeof path);
         (void) inf_json_str_field (obj, "type", type, sizeof type);
+        if (!inf_hf_path_match (prefix, path))
+            continue;
         if (strcmp (type, "file") != 0 || !path_safe (path))
             continue;
         char resolve[2048];
