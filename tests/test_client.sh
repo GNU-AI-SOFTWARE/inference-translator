@@ -106,6 +106,18 @@ grep -q 'buffer inchangé' "$D/out4.clean" || fail "/editor exit!=0 must keep th
 [ "$(cat "$M/prompt" 2>/dev/null)" = "texte avant" ] \
     || fail "/editor exit!=0: submitted prompt must stay the previous buffer"
 
+if [ "$FAIL" = 1 ]; then
+    # self-diagnosis: show what the pty sessions actually captured, so a
+    # failure on a given platform (e.g. GNU/Hurd) is visible in the log
+    say "--- raw pty captures on failure (cat -v, first 25 lines) ---"
+    for o in "$D/err" "$D/out" "$D/out2" "$D/out3" "$D/out4"; do
+        if [ -f "$o" ]; then
+            say "== $o =="
+            sed -n '1,25p' "$o" | cat -v
+        fi
+    done
+fi
+
 if [ "$FAIL" = 0 ]; then
     say "test_client: OK"
     exit 0

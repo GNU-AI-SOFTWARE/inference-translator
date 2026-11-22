@@ -399,22 +399,19 @@ main (int argc, char **argv)
     g_hpos = g_hist.count;
     atexit (inf_history_free_atexit);
 
-    /* POSIX cbreak BEFORE any output: once the first byte reaches the
-       pty master, the tty is already raw, so piped input can never sit
-       in a canonical queue that a later ICANON clear would flush (pty
-       servers differ here, e.g. GNU/Hurd).  Keep OPOST|ONLCR so '\n'
-       in the output still emits CR LF (cfmakeraw would clear OPOST
-       and the display would staircase). */
+    char banner[256];
+    inf_client_banner (banner, sizeof banner, VERSION);
+    fputs (banner, stdout);
+    cmd_status ();
+
+    /* POSIX cbreak: disable the line discipline and the echo, keep
+       OPOST|ONLCR so '\n' in the output still emits CR LF (cfmakeraw
+       would clear OPOST and the display would staircase). */
     tio.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
     tio.c_lflag &= ~(ECHO | ICANON | IEXTEN);
     tio.c_cc[VMIN] = 1;
     tio.c_cc[VTIME] = 0;
     tcsetattr (STDIN_FILENO, TCSANOW, &tio);
-
-    char banner[256];
-    inf_client_banner (banner, sizeof banner, VERSION);
-    fputs (banner, stdout);
-    cmd_status ();
 
     char line[INF_PROMPT_MAX];
     for (;;)
