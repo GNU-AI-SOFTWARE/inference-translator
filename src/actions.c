@@ -27,6 +27,9 @@ const struct inf_action inf_actions[] =
     { "/uptime", "version du client et du translator + uptime de la session" },
     { "/history", "lister l'historique de la session (flèche haut/bas pour rappeler)" },
     { "/watch", "surveiller /orchestrate : status (instances) puis résultat agrégé en streaming" },
+    { "/reply", "répondre selon les données d'entraînement enregistrées (cache local)" },
+    { "/sigmoid", "visualiser l'état des neurones montés (/llmN) après sigmoïde" },
+    { "/entrainement", "remplir /db avec les données d'une URL, passées par le neuron-translator" },
 };
 
 const size_t inf_actions_count =

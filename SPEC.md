@@ -320,7 +320,26 @@ faux arbre).
   - `/submit` : écrit le buffer dans `<mount>/prompt`, puis lit
     `<mount>/request` (JSON type 1 affiché) et `<mount>/status` ;
   - `/status` : lit `<mount>/status` ;
-  - `/quit` : quitte (exit 0).
+  - `/quit` : quitte (exit 0) ;
+  - `/reply [question]` : répond selon les données d'entraînement du cache
+    local NDJSON (`$INFERENCE_TRAINING` ou `$HOME/.inference-training.ndjson`,
+    rempli par `/learn`, `/learn-code`, `/entrainement`) — recherche par
+    mots-clés (`inf_training_search`) ;
+  - `/sigmoid` : visualise l'état des neurones montés `/llm1..N` — sorties
+    courantes du neuron-translator passées par la sigmoïde, une barre ASCII
+    par neurone de sortie (`inf_parse_neuron_output`, `inf_sigmoid_render`) ;
+  - `/entrainement URL` : télécharge la page, la découpe en extraits, fait
+    passer chaque extrait par le neuron-translator (`input` sur `/llm1..N`,
+    lecture de la sortie) et enregistre la paire {entrée, sortie} dans `/db`
+    (`training_data`) et le cache local.
+- **DNS automatique** : à chaque URL ajoutée (`/fetch`, `/learn`,
+  `/read-code`, `/learn-code`, `/entrainement`), si l'hôte n'est pas une IP
+  littérale et absent de `/etc/hosts`, il est résolu (`getent hosts`) puis
+  ajouté à `/etc/hosts` — httpfs atteint ainsi la cible sans DNS fonctionnel
+  dans la VM (`inf_url_host`, `inf_hosts_has`).
+- **Ligne d'information** : à chaque prompt, une ligne atténuée
+  (`inf_client_stats_line` : CPU %, mémoire) est affichée entre la ligne de
+  prompt et le reste de la fenêtre.
 - **Narration** : chaque étape affiche une ligne `→ <verbe> <mount>/<nœud>`
   nommant le nœud POSIX concerné (ex. `→ write /inference/prompt`).
 
@@ -331,7 +350,7 @@ gcc -std=c23 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror \
     -Iinclude -o /tmp/test_client tests/test_client.c \
     src/contract.c src/expr.c src/actions.c src/spinner.c src/fs.c src/client-core.c \
     src/training.c src/text.c src/stats.c src/jsonlite.c src/history.c
-/tmp/test_client                    # cœur pur du client (70/70)
+/tmp/test_client                    # cœur pur du client (89/89)
 ./autogen.sh && ./configure && make && make check   # + test_client.sh (pty via script(1))
 sh tests/test_client.sh src/inference
 # Sur GNU/Hurd avec le translator monté, en interactif (console série) :

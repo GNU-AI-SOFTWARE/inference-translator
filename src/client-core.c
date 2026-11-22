@@ -98,12 +98,19 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
                 cmd = INF_CMD_HISTORY;
             else if (strcmp (inf_actions[i].command, "/uptime") == 0)
                 cmd = INF_CMD_UPTIME;
+            else if (strcmp (inf_actions[i].command, "/reply") == 0)
+                cmd = INF_CMD_REPLY;
+            else if (strcmp (inf_actions[i].command, "/sigmoid") == 0)
+                cmd = INF_CMD_SIGMOID;
+            else if (strcmp (inf_actions[i].command, "/entrainement") == 0)
+                cmd = INF_CMD_TRAINING;
             else
                 cmd = INF_CMD_QUIT;
 
             if ((cmd == INF_CMD_TASK || cmd == INF_CMD_FETCH
                  || cmd == INF_CMD_LEARN || cmd == INF_CMD_READ_CODE
-                 || cmd == INF_CMD_LEARN_CODE)
+                 || cmd == INF_CMD_LEARN_CODE || cmd == INF_CMD_TRAINING
+                 || cmd == INF_CMD_REPLY)
                 && arg != NULL && argsz > 0)
               {
                 /* No space in the line ("/task" alone): sp is NULL, the

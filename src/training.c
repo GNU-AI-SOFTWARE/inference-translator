@@ -115,3 +115,91 @@ inf_training_record (char *out, size_t outsz, const char *url,
         eu, http_status, et, checksum_hex);
     return n < 0 ? 0 : (size_t) n;
 }
+
+/* --- /reply: keyword search over the NDJSON training cache ----------- */
+
+/* count distinct query words (lowercased, len>=3, alpha only) found in
+   TEXT (case-insensitive substring search) */
+static size_t
+training_score (const char *text, const char *query)
+{
+    if (text == NULL || query == NULL)
+        return 0;
+    size_t score = 0;
+    char word[64];
+    const char *p = query;
+    while (*p != '\0')
+      {
+        while (*p != '\0' && !((*p >= 'a' && *p <= 'z')
+                               || (*p >= 'A' && *p <= 'Z')
+                               || (unsigned char) *p >= 0x80))
+            p++;
+        size_t wl = 0;
+        while (*p != '\0' && wl + 1 < sizeof word
+               && ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z')
+                   || (unsigned char) *p >= 0x80))
+            word[wl++] = (*p >= 'A' && *p <= 'Z') ? *p + 32 : *p, p++;
+        word[wl] = '\0';
+        if (wl < 3)
+            continue;
+        /* lowercase TEXT scan */
+        size_t tl = strlen (text);
+        char *low = malloc (tl + 1);
+        if (low == NULL)
+            continue;
+        for (size_t i = 0; i < tl; i++)
+            low[i] = (text[i] >= 'A' && text[i] <= 'Z') ? text[i] + 32
+                     : text[i];
+        low[tl] = '\0';
+        if (strstr (low, word) != NULL)
+            score++;
+        free (low);
+      }
+    return score;
+}
+
+size_t
+inf_training_search (const char *ndjson, const char *query,
+                     char *out, size_t outsz)
+{
+    if (out == NULL || outsz == 0)
+        return 0;
+    out[0] = '\0';
+    if (ndjson == NULL || query == NULL || *query == '\0')
+        return 0;
+    size_t best = 0;
+    char bestline[300000];
+    bestline[0] = '\0';
+    const char *p = ndjson;
+    while (*p != '\0')
+      {
+        const char *eol = strchr (p, '\n');
+        size_t llen = eol != NULL ? (size_t) (eol - p) : strlen (p);
+        if (llen > 0 && llen < sizeof bestline)
+          {
+            char line[300000];
+            memcpy (line, p, llen);
+            line[llen] = '\0';
+            char content[262144];
+            if (inf_json_str_field (line, "content", content,
+                                    sizeof content) == 0)
+              {
+                size_t s = training_score (content, query);
+                if (s > best)
+                  {
+                    best = s;
+                    memcpy (bestline, line, llen + 1);
+                  }
+              }
+          }
+        p = eol != NULL ? eol + 1 : p + llen;
+      }
+    if (best == 0)
+        return 0;
+    size_t l = strlen (bestline);
+    if (l >= outsz)
+        l = outsz - 1;
+    memcpy (out, bestline, l);
+    out[l] = '\0';
+    return l;
+}

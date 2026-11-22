@@ -224,6 +224,72 @@ shell_quote (char *dst, size_t dstsz, const char *s)
     dst[n] = '\0';
 }
 
+/* dns_ensure_host — auto-DNS: when the host of URL is not an IP
+   literal and /etc/hosts does not know it, resolve it once (getent)
+   and append "IP host" to /etc/hosts, so httpfs — which relies on the
+   system resolver — can reach it even when the VM has no working DNS.
+   Best effort: every failure is only reported, never fatal. */
+static void
+dns_ensure_host (const char *url)
+{
+    char host[256];
+    if (!inf_url_host (url, host, sizeof host))
+        return;
+    bool is_ip = true;
+    for (const char *p = host; *p != '\0'; p++)
+        if (!((*p >= '0' && *p <= '9') || *p == '.'))
+          {
+            is_ip = false;
+            break;
+          }
+    if (is_ip)
+        return;                         /* IP literal: nothing to add */
+    char hosts[65536];
+    ssize_t hn = 0;
+    int fd = open ("/etc/hosts", O_RDONLY);
+    if (fd >= 0)
+      {
+        hn = read (fd, hosts, sizeof hosts - 1);
+        close (fd);
+        if (hn < 0)
+            hn = 0;
+      }
+    hosts[hn] = '\0';
+    if (inf_hosts_has (hosts, host))
+        return;                         /* already mapped */
+    char q[300];
+    char cmd[600];
+    shell_quote (q, sizeof q, host);
+    snprintf (cmd, sizeof cmd, "getent hosts %s 2>/dev/null | head -1", q);
+    FILE *f = popen (cmd, "r");
+    if (f == NULL)
+        return;
+    char line[512];
+    char ip[64] = "";
+    if (fgets (line, sizeof line, f) != NULL)
+        sscanf (line, "%63s", ip);
+    pclose (f);
+    if (ip[0] == '\0')
+      {
+        printf ("  DNS: %s introuvable (getent) — /etc/hosts inchangé\n",
+                host);
+        return;
+      }
+    fd = open ("/etc/hosts", O_WRONLY | O_APPEND);
+    if (fd < 0)
+      {
+        printf ("  DNS: /etc/hosts non inscriptible (%s) — relancez en root\n",
+                strerror (errno));
+        return;
+      }
+    char entry[400];
+    int m = snprintf (entry, sizeof entry, "%s %s\n", ip, host);
+    if (m > 0)
+        (void) write (fd, entry, (size_t) m);
+    close (fd);
+    printf ("  DNS: %s -> %s ajouté à /etc/hosts\n", host, ip);
+}
+
 /* fetch_url — mount httpfs on /page for URL, wait for the HEAD probe,
  * read the body.  Returns 0 when an HTTP status was obtained (even
  * "000": the probe failed, *out_status == 0 and *out_body == NULL),
@@ -235,6 +301,7 @@ fetch_url (const char *url, long *out_status, char **out_body,
 {
     *out_body = NULL;
     *out_len = 0;
+    dns_ensure_host (url);
     char q[2048];
     char b[2048];
     char cmd[4600];
@@ -419,6 +486,7 @@ cmd_learn (const char *arg)
         inf_training_record (rec, sizeof rec, line, status, text, sum);
 
         db_store_and_report (rec);
+        training_cache_append (rec);
       }
 }
 
@@ -762,4 +830,317 @@ cmd_learn_code (const char *arg)
     inf_training_record (rec, sizeof rec, urlbuf, status, body, sum);
     free (body);
     db_store_and_report (rec);
+    training_cache_append (rec);
+}
+
+/* Append one training record line to the local NDJSON cache that
+ * /reply searches (best effort). */
+int
+training_cache_append (const char *rec)
+{
+    if (g_training_cache == NULL || g_training_cache[0] == '\0')
+        return -1;
+    int fd = open (g_training_cache, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    if (fd < 0)
+        return -1;
+    size_t l = strlen (rec);
+    bool ok = write (fd, rec, l) == (ssize_t) l && write (fd, "\n", 1) == 1;
+    close (fd);
+    return ok ? 0 : -1;
+}
+
+/* --- /reply: answer from the training data ---------------------------- */
+
+void
+cmd_reply (const char *arg)
+{
+    const char *query = (arg != NULL && *arg != '\0') ? arg : g_buf;
+    if (query == NULL || *query == '\0')
+      {
+        printf ("  usage: /reply [question] — sinon le prompt courant sert de question\n");
+        return;
+      }
+    if (g_training_cache == NULL || g_training_cache[0] == '\0')
+      {
+        printf ("  cache d'entraînement non configuré\n");
+        return;
+      }
+    int fd = open (g_training_cache, O_RDONLY);
+    if (fd < 0)
+      {
+        printf ("  aucune donnée d'entraînement (cache %s illisible : %s)\n"
+                "  apprenez d'abord : /learn URL  ou  /entrainement URL\n",
+                g_training_cache, strerror (errno));
+        return;
+      }
+    static char cache[4 * 1024 * 1024];
+    ssize_t n = read (fd, cache, sizeof cache - 1);
+    close (fd);
+    if (n <= 0)
+        n = 0;
+    cache[n] = '\0';
+
+    char best[300000];
+    if (inf_training_search (cache, query, best, sizeof best) == 0)
+      {
+        printf ("  aucune donnée d'entraînement ne correspond à « %s »\n",
+                query);
+        return;
+      }
+    char url[2048] = "";
+    (void) inf_json_str_field (best, "source_url", url, sizeof url);
+    /* /entrainement records carry {"input":..,"output":[..]} as content:
+       the neuron output is the reply; plain /learn records reply with
+       the stored text. */
+    char output[8192];
+    char content[262144];
+    const char *reply = NULL;
+    if (inf_json_str_field (best, "output", output, sizeof output) == 0
+        && output[0] != '\0')
+        reply = output;
+    else if (inf_json_str_field (best, "content", content, sizeof content) == 0)
+        reply = content;
+    printf ("  réponse d'après les données d'entraînement (%s) :\n",
+            url[0] != '\0' ? url : "cache local");
+    if (reply != NULL)
+      {
+        size_t rl = strlen (reply);
+        if (rl > 2000)
+            rl = 2000;
+        char hl[8192];
+        inf_json_highlight (hl, sizeof hl, reply, inf_client_color ());
+        if (strchr (reply, '{') != NULL || strchr (reply, '[') != NULL)
+            printf ("  %s%s\n", rl < strlen (reply) ? "" : "", hl);
+        else
+            {
+                fwrite (reply, 1, rl, stdout);
+                printf ("%s\n", rl < strlen (reply) ? "…" : "");
+            }
+      }
+}
+
+/* --- /sigmoid: visualize the state of the mounted neurons ------------- */
+
+void
+cmd_sigmoid (void)
+{
+    printf ("  état des neurones (sigmoïde des sorties courantes) :\n");
+    int found = 0;
+    for (int i = 1; i <= 16; i++)
+      {
+        char mount[32];
+        snprintf (mount, sizeof mount, "/llm%d", i);
+        char text[8192];
+        narrate ("read", mount);
+        if (read_root (mount, text, sizeof text) < 0)
+            continue;
+        double vals[64];
+        size_t n = 0;
+        inf_parse_neuron_output (text, vals, 64, &n);
+        if (n == 0)
+            continue;
+        found++;
+        char block[8192];
+        inf_sigmoid_render (block, sizeof block, mount, vals, n,
+                            inf_client_color ());
+        fputs (block, stdout);
+      }
+    if (found == 0)
+        printf ("  aucun neurone monté (/llm1..N illisibles)\n"
+                "  montez-en un : settrans -a /llm1 neuron-translator ...\n");
+}
+
+/* --- /entrainement URL: fill /db through the neuron-translator -------- */
+
+#define TRAIN_MAX_CHUNKS 64
+#define TRAIN_CHUNK_MAX  1024
+#define TRAIN_VEC_MAX    64
+
+/* neuron_input_size — parse "input v1,...,v%u" from a neuron status
+   text; returns 0 when unknown. */
+static unsigned
+neuron_input_size (const char *text)
+{
+    const char *p = strstr (text, "input v1,...,v");
+    if (p == NULL)
+        return 0;
+    p += strlen ("input v1,...,v");
+    return (unsigned) strtoul (p, NULL, 10);
+}
+
+void
+cmd_training (const char *arg)
+{
+    char urlbuf[2048];
+    if (arg == NULL || *arg == '\0')
+      {
+        printf ("  usage: /entrainement URL (page de dataset, ex. "
+                "https://huggingface.co/datasets)\n");
+        return;
+      }
+    snprintf (urlbuf, sizeof urlbuf, "%s", arg);
+    inf_url_trim (urlbuf);
+    if (!inf_url_valid (urlbuf))
+      {
+        printf ("  URL invalide: http:// ou https:// suivi d'un hôte requis\n");
+        return;
+      }
+    long status;
+    char *body;
+    size_t blen;
+    if (fetch_url (urlbuf, &status, &body, &blen) != 0)
+        return;
+    print_http_status (status);
+    if (status < 200 || status >= 300)
+      {
+        free (body);
+        return;
+      }
+    char text[262144];
+    inf_html_to_text (text, sizeof text, body);
+    free (body);
+    if (text[0] == '\0')
+      {
+        printf ("  page sans texte exploitable\n");
+        return;
+      }
+
+    /* collect the neuron mounts that answer (/llm1..16) */
+    static char llms[16][32];
+    int nllm = 0;
+    char probe[8192];
+    for (int i = 1; i <= 16 && nllm < 16; i++)
+      {
+        snprintf (llms[nllm], sizeof llms[0], "/llm%d", i);
+        if (read_root (llms[nllm], probe, sizeof probe) >= 0)
+            nllm++;
+      }
+    if (nllm == 0)
+      {
+        printf ("  aucun neurone monté (/llm1..N) : /entrainement fait "
+                "passer chaque extrait par le neuron-translator\n"
+                "  settrans -a /llm1 neuron-translator ...\n");
+        return;
+      }
+    unsigned in_size = neuron_input_size (probe);
+    if (in_size == 0 || in_size > TRAIN_VEC_MAX)
+      {
+        printf ("  taille d'entrée du neurone inconnue ou > %d (%u)\n",
+                TRAIN_VEC_MAX, in_size);
+        return;
+      }
+
+    /* split the text into chunks on blank lines, capped */
+    static const char *chunks[TRAIN_MAX_CHUNKS];
+    static size_t clens[TRAIN_MAX_CHUNKS];
+    size_t nchunks = 0;
+    {
+        const char *p = text;
+        while (*p != '\0' && nchunks < TRAIN_MAX_CHUNKS)
+          {
+            while (*p == '\n' || *p == ' ' || *p == '\t' || *p == '\r')
+                p++;
+            if (*p == '\0')
+                break;
+            const char *start = p;
+            const char *end = p;
+            while (*end != '\0')
+              {
+                if (end[0] == '\n' && (end[1] == '\n' || end[1] == '\0'))
+                    break;
+                if ((size_t) (end - start) >= TRAIN_CHUNK_MAX)
+                  {
+                    const char *sp = end;
+                    while (sp > start && *sp != ' ' && *sp != '\n')
+                        sp--;
+                    end = sp > start ? sp : end;
+                    break;
+                  }
+                end++;
+              }
+            size_t cl = (size_t) (end - start);
+            while (cl > 0 && (start[cl - 1] == '\n' || start[cl - 1] == ' '
+                              || start[cl - 1] == '\r'))
+                cl--;
+            if (cl > 0)
+              {
+                chunks[nchunks] = start;
+                clens[nchunks] = cl;
+                nchunks++;
+              }
+            p = end;
+          }
+    }
+    if (nchunks == 0)
+      {
+        printf ("  aucun extrait d'entraînement dans la page\n");
+        return;
+      }
+    printf ("  %zu extrait(s) à faire passer par %d neurone(s) "
+            "(entrée %u)\n", nchunks, nllm, in_size);
+
+    for (size_t c = 0; c < nchunks; c++)
+      {
+        char chunk[TRAIN_CHUNK_MAX + 1];
+        memcpy (chunk, chunks[c], clens[c]);
+        chunk[clens[c]] = '\0';
+
+        const char *llm = llms[c % nllm];
+        double vec[TRAIN_VEC_MAX];
+        inf_text_to_vector (chunk, vec, in_size);
+
+        char incmd[2048];
+        size_t off = 0;
+        off += (size_t) snprintf (incmd + off, sizeof incmd - off, "input ");
+        for (unsigned i = 0; i < in_size; i++)
+            off += (size_t) snprintf (incmd + off, sizeof incmd - off,
+                                      "%s%.6f", i > 0 ? "," : "", vec[i]);
+        narrate ("write", llm);
+        if (write_root (llm, incmd, strlen (incmd)) != 0)
+          {
+            printf ("  extrait %zu: écriture sur %s refusée (%s) — "
+                    "chmod 666 %s ou root\n", c + 1, llm, strerror (errno),
+                    llm);
+            continue;
+          }
+        char out_text[8192];
+        narrate ("read", llm);
+        if (read_root (llm, out_text, sizeof out_text) < 0)
+          {
+            printf ("  extrait %zu: sortie de %s illisible\n", c + 1, llm);
+            continue;
+          }
+        double vals[TRAIN_VEC_MAX];
+        size_t nv = 0;
+        inf_parse_neuron_output (out_text, vals, TRAIN_VEC_MAX, &nv);
+        if (nv == 0)
+          {
+            printf ("  extrait %zu: aucune sortie de %s\n", c + 1, llm);
+            continue;
+          }
+
+        /* content = {"input":..,"output":[..],"neuron":"/llmK"} */
+        char ein[TRAIN_CHUNK_MAX * 6 + 8];
+        inf_json_escape (chunk, ein, sizeof ein);
+        char outj[2048];
+        size_t oj = 0;
+        oj += (size_t) snprintf (outj + oj, sizeof outj - oj, "[");
+        for (size_t i = 0; i < nv; i++)
+            oj += (size_t) snprintf (outj + oj, sizeof outj - oj, "%s%.6f",
+                                     i > 0 ? "," : "", vals[i]);
+        snprintf (outj + oj, sizeof outj - oj, "]");
+        char content[6 * TRAIN_CHUNK_MAX + 2200];
+        snprintf (content, sizeof content,
+                  "{\"input\":\"%s\",\"output\":%s,\"neuron\":\"%s\"}",
+                  ein, outj, llm);
+        char sum[65];
+        inf_sha256_hex (sum, (const unsigned char *) content,
+                        strlen (content));
+        char rec[300000];
+        inf_training_record (rec, sizeof rec, urlbuf, status, content, sum);
+        printf ("  extrait %zu/%zu -> %s, sortie [%zu valeurs]\n",
+                c + 1, nchunks, llm, nv);
+        db_store_and_report (rec);
+        training_cache_append (rec);
+      }
 }

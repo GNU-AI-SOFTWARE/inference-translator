@@ -13,7 +13,7 @@ bin_PROGRAMS = inference-translator inference
 # binary and the test suite.
 noinst_LIBRARIES = libinfcore.a
 libinfcore_a_SOURCES = contract.c expr.c actions.c spinner.c fs.c \
-    client-core.c training.c text.c stats.c jsonlite.c history.c
+    client-core.c training.c text.c stats.c jsonlite.c history.c neuron.c
 
 # --- The phase 2 client `inference` ---------------------------------
 #
@@ -22,7 +22,7 @@ libinfcore_a_SOURCES = contract.c expr.c actions.c spinner.c fs.c \
 # not (the tests point it at a fake tree with --mount).
 inference_SOURCES = client.c nodeio.c cmds.c
 inference_CPPFLAGS = $(AM_CPPFLAGS)
-inference_LDADD = libinfcore.a
+inference_LDADD = libinfcore.a -lm
 
 # /stats uses Mach host statistics on Hurd (/proc elsewhere).
 if ON_HURD
@@ -48,7 +48,7 @@ inference_translator_LDADD = libinfcore.a -lnetfs -lfshelp -lports \
 else
 inference_translator_SOURCES = main.c
 inference_translator_CPPFLAGS = $(AM_CPPFLAGS)
-inference_translator_LDADD = libinfcore.a
+inference_translator_LDADD = libinfcore.a -lm
 endif
 
 # The ncurses --cli prototype is built only when configure found

@@ -52,6 +52,7 @@ bool g_tio_saved;
 const char *g_mount = INF_MOUNT_INFERENCE;
 const char *g_db = "/db";        /* --db DIR / $INFERENCE_DB */
 const char *g_orch = INF_MOUNT_ORCHESTRATE; /* --orchestrate DIR */
+const char *g_training_cache = NULL; /* $INFERENCE_TRAINING / $HOME/.inference-training.ndjson */
 struct inf_history g_hist;               /* --history FILE */
 char g_hist_path[4096] = "";
 char g_hist_saved[INF_PROMPT_MAX];       /* in-progress line while browsing */
@@ -264,9 +265,11 @@ usage (FILE *out)
     fprintf (out,
              "Usage: inference [--mount DIR] [--db DIR] [--orchestrate DIR] [--history FILE] [--version] [--help]\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /watch /history /uptime /status /stats /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /watch /history /uptime /reply [question] /sigmoid /entrainement URL /status /stats /help /quit.\n"
              "Base de données: /db par défaut (--db DIR ou $INFERENCE_DB).\n"
-             "Orchestrateur: /orchestrate par défaut (--orchestrate DIR ou $INFERENCE_ORCH).\n"             "Historique: $HOME/.history par défaut (--history FILE ou $INFERENCE_HISTORY),\n    flèche haut/bas pour rappeler une ligne.\n"
+             "Orchestrateur: /orchestrate par défaut (--orchestrate DIR ou $INFERENCE_ORCH).\n"
+             "Cache d'entraînement (pour /reply): $INFERENCE_TRAINING ou $HOME/.inference-training.ndjson.\n"
+             "Historique: $HOME/.history par défaut (--history FILE ou $INFERENCE_HISTORY),\n    flèche haut/bas pour rappeler une ligne.\n"
              "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
 }
 
@@ -283,6 +286,21 @@ main (int argc, char **argv)
     env0 = getenv ("INFERENCE_ORCH");
     if (env0 != NULL && *env0 != '\0')
         g_orch = env0;
+    env0 = getenv ("INFERENCE_TRAINING");
+    if (env0 != NULL && *env0 != '\0')
+        g_training_cache = env0;
+    else
+      {
+        const char *home = getenv ("HOME");
+        static char defcache[4096];
+        if (home != NULL && *home != '\0')
+            snprintf (defcache, sizeof defcache,
+                      "%s/.inference-training.ndjson", home);
+        else
+            snprintf (defcache, sizeof defcache,
+                      ".inference-training.ndjson");
+        g_training_cache = defcache;
+      }
     env0 = getenv ("INFERENCE_HISTORY");
     if (env0 != NULL && *env0 != '\0')
         snprintf (g_hist_path, sizeof g_hist_path, "%s", env0);
@@ -394,6 +412,14 @@ main (int argc, char **argv)
     char line[INF_PROMPT_MAX];
     for (;;)
       {
+        /* persistent info line: machine usage, between the prompt line
+           and the rest of the window */
+        char sline[256];
+        inf_client_stats_line (sline, sizeof sline);
+        if (inf_client_color ())
+            printf ("\033[2m  %s\033[0m\n", sline);
+        else
+            printf ("  %s\n", sline);
         if (inf_client_color ())
             printf ("\033[1;32m> \033[0m");
         else
@@ -469,6 +495,15 @@ main (int argc, char **argv)
             break;
           case INF_CMD_UPTIME:
             cmd_uptime ();
+            break;
+          case INF_CMD_REPLY:
+            cmd_reply (arg);
+            break;
+          case INF_CMD_SIGMOID:
+            cmd_sigmoid ();
+            break;
+          case INF_CMD_TRAINING:
+            cmd_training (arg);
             break;
           case INF_CMD_UNKNOWN:
           default:

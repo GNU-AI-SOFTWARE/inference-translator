@@ -10,15 +10,15 @@ TESTS = test_cli.sh test_client.sh test_contract test_fs test_client test_posix.
 check_PROGRAMS = test_contract test_fs test_client
 
 test_contract_SOURCES = test_contract.c
-test_contract_LDADD = $(top_builddir)/src/libinfcore.a
+test_contract_LDADD = $(top_builddir)/src/libinfcore.a -lm
 test_contract_CPPFLAGS = -I$(top_srcdir)/include
 
 test_fs_SOURCES = test_fs.c
-test_fs_LDADD = $(top_builddir)/src/libinfcore.a
+test_fs_LDADD = $(top_builddir)/src/libinfcore.a -lm
 test_fs_CPPFLAGS = -I$(top_srcdir)/include
 
 test_client_SOURCES = test_client.c
-test_client_LDADD = $(top_builddir)/src/libinfcore.a
+test_client_LDADD = $(top_builddir)/src/libinfcore.a -lm
 test_client_CPPFLAGS = -I$(top_srcdir)/include
 
 EXTRA_DIST = test_cli.sh test_client.sh test_posix.sh
