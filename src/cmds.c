@@ -180,7 +180,7 @@ cmd_uptime (void)
 /* --- /fetch: an HTML page through httpfs ----------------------------- */
 
 #define FETCH_MOUNT     "/page"
-#define FETCH_MAX_BODY  (256 * 1024)
+#define FETCH_MAX_BODY  (4 * 1024 * 1024)   /* one HF tree page (~1000 entries) is ~200 KB */
 #define FETCH_PREVIEW   4000
 
 /* find_httpfs — locate the httpfs translator binary: $HTTPFS_BIN,
@@ -338,14 +338,16 @@ dns_ensure_host (const char *url)
     printf ("  DNS: %s -> %s ajouté à /etc/hosts\n", host, ip);
 }
 
-/* fetch_url — mount httpfs on /page for URL, wait for the HEAD probe,
- * read the body.  Returns 0 when an HTTP status was obtained (even
- * "000": the probe failed, *out_status == 0 and *out_body == NULL),
- * -1 when the mount/probe failed.  On success *out_body is malloc'd
- * (NULL when there is no body); the caller frees it. */
+/* fetch_url_h — mount httpfs on /page for URL, wait for the HEAD probe,
+ * read the body, and (when HEADERS is non-NULL) the raw probe headers
+ * (Link rel="next" pagination cursor of the HF tree API).
+ * Returns 0 when an HTTP status was obtained (even "000": the probe
+ * failed, *out_status == 0 and *out_body == NULL), -1 when the
+ * mount/probe failed.  On success *out_body is malloc'd (NULL when
+ * there is no body); the caller frees it. */
 static int
-fetch_url (const char *url, long *out_status, char **out_body,
-           size_t *out_len)
+fetch_url_h (const char *url, long *out_status, char **out_body,
+             size_t *out_len, char *headers, size_t hsz)
 {
     *out_body = NULL;
     *out_len = 0;
@@ -355,11 +357,17 @@ fetch_url (const char *url, long *out_status, char **out_body,
     char cmd[4600];
     shell_quote (q, sizeof q, url);
     shell_quote (b, sizeof b, find_httpfs ());
+    /* Robust remount: kill any previous translator on FETCH_MOUNT and
+       retry the activation — on Hurd the removal can lag slightly and a
+       bare "settrans -a" then fails with EBUSY ("Device or resource
+       busy") when two fetches follow each other. */
     snprintf (cmd, sizeof cmd,
-              "settrans -fg " FETCH_MOUNT " 2>/dev/null; "
+              "i=0; while [ $i -lt 6 ]; do "
+              "settrans -g -f " FETCH_MOUNT " 2>/dev/null; "
               "sleep 1; "
               "mkdir -p " FETCH_MOUNT "; "
-              "settrans -a " FETCH_MOUNT " %s %s", b, q);
+              "if settrans -a " FETCH_MOUNT " %s %s 2>/dev/null; then exit 0; fi; "
+              "i=$((i+1)); done; exit 1", b, q);
     printf ("→ mount %s %s sur " FETCH_MOUNT "\n", b, url);
     if (system (cmd) != 0)
       {
@@ -410,7 +418,20 @@ fetch_url (const char *url, long *out_status, char **out_body,
       }
     *out_body = body;
     *out_len = (size_t) total;
+    if (headers != NULL && hsz > 0)
+      {
+        ssize_t hn = read_node_m (FETCH_MOUNT, "headers", headers, hsz);
+        if (hn < 0)
+            headers[0] = '\0';
+      }
     return 0;
+}
+
+static int
+fetch_url (const char *url, long *out_status, char **out_body,
+           size_t *out_len)
+{
+    return fetch_url_h (url, out_status, out_body, out_len, NULL, 0);
 }
 
 static void
@@ -1262,8 +1283,9 @@ path_safe (const char *path)
     return true;
 }
 
-/* hf_fetch_list — fetch the HF tree API for HFURL; returns a malloc'd
-   JSON array body (caller frees) or NULL. */
+/* hf_fetch_list — fetch the HF tree API for HFURL, following the
+   Link rel="next" pagination (the API returns at most 1000 entries per
+   page); returns a malloc'd JSON array body (caller frees) or NULL. */
 static char *
 hf_fetch_list (const char *hfurl, long *out_status)
 {
@@ -1273,17 +1295,46 @@ hf_fetch_list (const char *hfurl, long *out_status)
         printf ("  URL hf:// invalide (attendu: hf://buckets|datasets|models/<owner>/<repo>[/prefix])\n");
         return NULL;
       }
-    char *body;
-    size_t blen;
-    if (fetch_url (api, out_status, &body, &blen) != 0)
+    char *acc = malloc (2);
+    if (acc == NULL)
         return NULL;
-    print_http_status (*out_status);
-    if (*out_status < 200 || *out_status >= 300)
+    acc[0] = '[';
+    acc[1] = '\0';
+    size_t alen = 1, acap = 2;
+    char url[2200];
+    snprintf (url, sizeof url, "%s", api);
+    long status = 0;
+    for (int page = 0; page < 64; page++)   /* hard cap: 64 pages */
       {
+        char *body;
+        size_t blen;
+        char headers[16384];
+        if (fetch_url_h (url, &status, &body, &blen, headers, sizeof headers) != 0)
+          {
+            free (acc);
+            return NULL;
+          }
+        print_http_status (status);
+        if (status < 200 || status >= 300)
+          {
+            free (body);
+            free (acc);
+            return NULL;
+          }
+        if (inf_hf_array_merge (&acc, &alen, &acap, body) == 0)
+          {
+            free (body);
+            free (acc);
+            return NULL;
+          }
         free (body);
-        return NULL;
+        char next[2048];
+        if (inf_hf_link_next (headers, next, sizeof next) == 0)
+            break;                        /* last page */
+        snprintf (url, sizeof url, "%s", next);
       }
-    return body;
+    *out_status = status;
+    return acc;
 }
 
 static void

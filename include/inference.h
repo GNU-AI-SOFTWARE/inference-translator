@@ -426,6 +426,17 @@ size_t inf_hf_resolve_url (const char *hfurl, const char *path,
  * is applied client-side on the listed paths. */
 bool inf_hf_path_match (const char *prefix, const char *path);
 
+/* inf_hf_link_next: extract the rel="next" URL from a raw Link header
+ * block (HF tree API pagination, 1000 entries per page).  Returns the URL
+ * length, 0 when there is no next page. */
+size_t inf_hf_link_next (const char *headers, char *out, size_t outsz);
+
+/* inf_hf_array_merge: append the elements of the JSON array PAGE to the
+ * accumulated malloc'd array ACC ("[..." style).  Returns the new length
+ * of ACC, or 0 on error (ACC unchanged). */
+size_t inf_hf_array_merge (char **acc, size_t *len, size_t *cap,
+                           const char *page);
+
 /* --- JSON array helpers (for the HF tree API) -------------------------
  * inf_json_array_count: number of elements of the top-level array.
  * inf_json_array_object: copy the IDX-th element (object or scalar) of

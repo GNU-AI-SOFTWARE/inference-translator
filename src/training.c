@@ -379,6 +379,96 @@ inf_hf_path_match (const char *prefix, const char *path)
     return strncmp (path, prefix, strlen (prefix)) == 0;
 }
 
+/* inf_hf_link_next — extract the rel="next" URL from a raw HTTP header
+   block.  The HF tree API returns at most 1000 entries per page and
+   advertises the next page as:  Link: <URL>; rel="next"
+   Returns the URL length, 0 when there is no next page. */
+size_t
+inf_hf_link_next (const char *headers, char *out, size_t outsz)
+{
+    if (headers == NULL || out == NULL || outsz < 2)
+        return 0;
+    const char *rel = strstr (headers, "rel=\"next\"");
+    if (rel == NULL)
+      {
+        rel = strstr (headers, "rel=next");
+        if (rel != NULL)
+          {
+            char c = rel[8];
+            if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z')
+                || (c >= 'A' && c <= 'Z') || c == '"' || c == '=')
+                rel = NULL;         /* rel=next2 etc. is not rel=next */
+          }
+      }
+    if (rel == NULL)
+        return 0;
+    const char *open = NULL;
+    for (const char *q = rel; q > headers; q--)
+        if (*q == '<')
+          {
+            open = q;
+            break;
+          }
+    if (open == NULL)
+        return 0;
+    const char *close = strchr (open, '>');
+    if (close == NULL || close > rel)
+        return 0;
+    size_t len = (size_t) (close - open - 1);
+    if (len == 0 || len >= outsz)
+        return 0;
+    memcpy (out, open + 1, len);
+    out[len] = '\0';
+    return len;
+}
+
+/* inf_hf_array_merge — append the elements of the JSON array PAGE to the
+   accumulated array ACC (a malloc'd buffer holding "[..."), joining the
+   paginated HF tree listings into one array.  Returns the new length of
+   ACC, or 0 on format/allocation error (ACC left unchanged). */
+size_t
+inf_hf_array_merge (char **acc, size_t *len, size_t *cap, const char *page)
+{
+    if (acc == NULL || *acc == NULL || len == NULL || cap == NULL
+        || page == NULL)
+        return 0;
+    const char *p = page;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
+        p++;
+    if (*p != '[')
+        return 0;
+    const char *close = strrchr (page, ']');
+    if (close == NULL || close <= p)
+        return 0;
+    const char *first = p + 1;
+    size_t inner = (size_t) (close - first);
+    while (inner > 0 && (first[inner - 1] == ' ' || first[inner - 1] == '\t'
+                         || first[inner - 1] == '\n' || first[inner - 1] == '\r'))
+        inner--;
+    int comma = (*len > 1 && inner > 0);   /* ACC holds elements and page is not empty */
+    size_t need = *len + (size_t) comma + inner + 2;   /* ',' + inner + ']' + NUL */
+    if (need > (32u << 20))             /* hard cap: 32 MB of listing */
+        return 0;
+    if (need > *cap)
+      {
+        size_t ncap = (*cap) * 2;
+        while (ncap < need)
+            ncap *= 2;
+        char *nacc = realloc (*acc, ncap);
+        if (nacc == NULL)
+            return 0;
+        *acc = nacc;
+        *cap = ncap;
+      }
+    if (comma)
+        (*acc)[(*len)++] = ',';
+    memcpy (*acc + *len, first, inner);
+    *len += inner;
+    (*acc)[*len] = ']';
+    (*acc)[*len + 1] = '\0';
+    return *len;
+}
+
 /* --- JSON top-level array helpers (HF tree API) ------------------------ */
 
 /* Skip whitespace; return the pointer past it. */
