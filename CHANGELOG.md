@@ -18,6 +18,14 @@ par un bump de `version`.
 
 ## [Unreleased]
 
+### Corrigé
+
+- **`tests/test_fs.c`** : le nœud `version` était comparé à une version
+  codée en dur (`"0.1.0"`) — le test cassait à chaque bump (v1.0.0). Il
+  attend désormais la macro `VERSION` (via `PACKAGE_VERSION`/`config.h`),
+  comme le rend `src/fs.c`. Vérifié : 29/29 avec `PACKAGE_VERSION` absent,
+  `1.0.0` et `0.1.2`.
+
 ### Ajouté
 
 - **Versionnage itératif** : `scripts/release.sh iterate` (bump patch auto à

@@ -9,11 +9,23 @@
  * implementation.  Pure POSIX: runs on any machine, Hurd or not.
  */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "inference.h"
+
+#ifndef VERSION
+# ifdef PACKAGE_VERSION
+#  define VERSION PACKAGE_VERSION
+# else
+#  define VERSION "0.1.0"
+# endif
+#endif
 
 static int g_checks = 0;
 static int g_failed = 0;
@@ -78,10 +90,15 @@ main (void)
            && strcmp (buf, "summarize") == 0);
     check ("params stays empty in phase 1",
            read_node (INF_NODE_PARAMS) == 2 && strcmp (buf, "{}") == 0);
-    check ("version node carries the contract version",
-           read_node (INF_NODE_VERSION) >= 0
-           && strcmp (buf, "{\"program\":\"inference-translator\","
-                          "\"version\":\"0.1.0\",\"contract\":1}") == 0);
+    {
+        char want[192];
+        snprintf (want, sizeof want,
+                  "{\"program\":\"inference-translator\",\"version\":\"%s\","
+                  "\"contract\":%d}", VERSION, INF_CONTRACT_VERSION);
+        check ("version node carries the contract version",
+               read_node (INF_NODE_VERSION) >= 0
+               && strcmp (buf, want) == 0);
+    }
     check ("prompt reads back what was written",
            read_node (INF_NODE_PROMPT)
                == (ssize_t) strlen ("résume https://example.org/article")
