@@ -14,12 +14,29 @@ Format « Keep a Changelog », versionnage sémantique. Les contrats gelés
 de `SPEC.md` ne changent jamais silencieusement : toute évolution passe
 par un bump de `version`.
 
-## [1.0.0] — 2026-11-22
-
 ## [Unreleased]
+
+### Modifié
+
+- **Reset de version à 0.1.0** : la v1.0.0 avait été coupée par le tail d'un
+  bootstrap raté (avant le merge des PRs de versioning). `VERSION` repasse à
+  0.1.0, la section `## [1.0.0]` est retirée et le tag `v1.0.0` supprimé ;
+  le versionnage itératif repart de 0.1.0 → 0.1.1 → …
+
+### Corrigé
+
+- **`tests/test_fs.c`** : le nœud `version` était comparé à une version
+  codée en dur (`"0.1.0"`) — le test cassait à chaque bump (v1.0.0). Il
+  attend désormais la macro `VERSION` (via `PACKAGE_VERSION`/`config.h`),
+  comme le rend `src/fs.c`. Vérifié : 29/29 avec `PACKAGE_VERSION` absent,
+  `1.0.0` et `0.1.2`.
 
 ### Ajouté
 
+- **Versionnage itératif** : `scripts/release.sh iterate` (bump patch auto à
+  chaque itération : 0.1.0 → 0.1.1 → 0.1.2 …, `--all` pour toute la pile),
+  helper `scripts/version.sh` (`--next`, `--check`), doc `docs/VERSIONING.md`
+  (section « Versionnage itératif »).
 - **Phase 3 (client riche)** : coloration syntaxique du prompt et des JSON
   (`inf_json_highlight`, `inf_text_highlight`), spinner pendant `/submit`,
   statuts colorés, retour arrière UTF-8 corrigé (`del_char`),
