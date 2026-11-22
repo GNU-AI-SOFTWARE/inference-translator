@@ -16,12 +16,13 @@
  * the interactive client starts.  Exit status: the child's exit
  * status, or 124 when the 60 s watchdog fires.
  *
- * stdin is forwarded to the master only once the child has produced
- * output (or after a 2 s grace period for silent children): the
- * client switches its tty to raw mode before printing anything, so
- * the first output byte means "raw mode is active" and piped input
- * can never be flushed by an ICANON clear on pty servers that discard
- * the canonical queue on mode change (GNU/Hurd).
+ * stdin is forwarded to the master only once the child's output burst
+ * has been quiet for 300 ms (or after 5 s with no output at all, so a
+ * silent child still gets its stdin): the interactive client finishes
+ * its termios setup within the first output burst, so piped input then
+ * lands in the raw queue and can never be flushed by an ICANON clear
+ * on pty servers that discard the canonical queue on mode change
+ * (GNU/Hurd).
  */
 
 #define _XOPEN_SOURCE 700
@@ -94,7 +95,8 @@ main (int argc, char **argv)
     }
 
   int stdin_open = 1;
-  int ready = 0;        /* 1 once the child produced output (or 2 s elapsed) */
+  int ready = 0;        /* forward stdin only after the output burst went quiet */
+  int seen_output = 0;
   for (;;)
     {
       struct pollfd pfd[2];
@@ -113,7 +115,8 @@ main (int argc, char **argv)
       n++;
       m = n - 1;
 
-      int pr = poll (pfd, n, ready ? -1 : 2000);
+      int timeout = ready ? -1 : (seen_output ? 300 : 5000);
+      int pr = poll (pfd, n, timeout);
       if (pr < 0)
         {
           if (errno == EINTR)
@@ -122,7 +125,7 @@ main (int argc, char **argv)
         }
       if (pr == 0)
         {
-          ready = 1;    /* silent child: forward stdin anyway */
+          ready = 1;    /* quiet period over (or silent child): forward stdin */
           continue;
         }
 
@@ -151,7 +154,7 @@ main (int argc, char **argv)
           ssize_t r = read (master, buf, sizeof buf);
           if (r <= 0)
             break;              /* child gone: the pty master reports EOF/EIO */
-          ready = 1;
+          seen_output = 1;
           ssize_t off = 0;
           while (off < r)
             {
