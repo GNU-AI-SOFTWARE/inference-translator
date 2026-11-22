@@ -20,6 +20,10 @@ par un bump de `version`.
 
 ### Ajouté
 
+- **Versionnage itératif** : `scripts/release.sh iterate` (bump patch auto à
+  chaque itération : 0.1.0 → 0.1.1 → 0.1.2 …, `--all` pour toute la pile),
+  helper `scripts/version.sh` (`--next`, `--check`), doc `docs/VERSIONING.md`
+  (section « Versionnage itératif »).
 - **Phase 3 (client riche)** : coloration syntaxique du prompt et des JSON
   (`inf_json_highlight`, `inf_text_highlight`), spinner pendant `/submit`,
   statuts colorés, retour arrière UTF-8 corrigé (`del_char`),
