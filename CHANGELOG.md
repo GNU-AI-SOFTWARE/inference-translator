@@ -27,6 +27,19 @@ par un bump de `version`.
 
 ### Corrigé
 
+- **Build** : `install.sh` déplacé vers `scripts/install.sh` — la racine
+  étant le aux-dir d'autoconf, automake ≥ 1.17 transformait
+  « 'install.sh' is an anachronism » en erreur dure et cassait
+  `autoreconf -i` / `autogen.sh`. Le tarball injecté dans la VM partait
+  alors avec des `Makefile.in` périmés et `make` y mourait sur
+  `missing automake-1.17`. `Makefile.am`, `configure.ac`, `INSTALL.md`,
+  `INSTALL-EN.md` mis à jour.
+- **hurd-vm** : `guest-inference.sh` exige désormais un système de build
+  pré-généré complet (`configure`, `Makefile.in`, `config.h.in` —
+  marqueur `GUEST-BUILD-KO` sinon) et normalise les timestamps après
+  extraction : `make` ne tente plus jamais de régénérer `configure` /
+  `Makefile.in` dans le guest (image sans autotools).
+
 - **`tests/test_fs.c`** : le nœud `version` était comparé à une version
   codée en dur (`"0.1.0"`) — le test cassait à chaque bump (v1.0.0). Il
   attend désormais la macro `VERSION` (via `PACKAGE_VERSION`/`config.h`),

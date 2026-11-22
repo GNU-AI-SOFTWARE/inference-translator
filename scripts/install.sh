@@ -6,11 +6,11 @@
 # dépendances (si root et apt présent), autogen, configure, make,
 # make check, make install.
 #
-#   ./install.sh                  # préfixe /usr/local, tests inclus
-#   ./install.sh --prefix=/usr
-#   ./install.sh --no-check       # saute make check
-#   ./install.sh --no-deps        # ne touche pas aux paquets
-#   ./install.sh --help
+#   ./scripts/install.sh                  # préfixe /usr/local, tests inclus
+#   ./scripts/install.sh --prefix=/usr
+#   ./scripts/install.sh --no-check       # saute make check
+#   ./scripts/install.sh --no-deps        # ne touche pas aux paquets
+#   ./scripts/install.sh --help
 
 set -eu
 
@@ -34,7 +34,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 echo "==> hôte: $(uname -s) $(uname -m)"
 

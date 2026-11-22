@@ -21,6 +21,11 @@
 #   tar czf inference-src.tar.gz inference-translator
 #   ./inject-src.sh <image> ~/inference-src.tar.gz
 #
+# autoreconf -i must SUCCEED on the host (automake >= 1.17 hard-errors on
+# a top-level install.sh, now moved to scripts/); below, the guest checks
+# that the generated build system is complete and normalizes timestamps,
+# so make can never try to run the absent automake through ./missing.
+#
 # If /root/inference-src.tar.gz is missing but git and the network
 # work, falls back to a git clone.
 
@@ -93,6 +98,28 @@ else
     exit 1
 fi
 cd inference-translator
+
+# The guest image has no autoconf/automake: require a complete
+# pre-generated build system (clear GUEST-BUILD-KO marker otherwise),
+# then normalize timestamps so make never regenerates configure or
+# Makefile.in — that would call the absent automake via ./missing and
+# die with "make: *** [Makefile:...: Makefile.in] Error 1".
+if [ ! -x ./configure ]; then
+    if command -v autoreconf >/dev/null 2>&1; then
+        autoreconf -i
+    else
+        echo "GUEST-BUILD-KO: no ./configure and no autoreconf in the guest" >&2
+        echo "host side: cd ~/inference-translator && autoreconf -i, re-pack, re-inject" >&2
+        exit 1
+    fi
+fi
+for f in Makefile.in src/Makefile.in tests/Makefile.in config.h.in; do
+    [ -f "$f" ] || {
+        echo "GUEST-BUILD-KO: $f missing — run autoreconf -i on the host before packing" >&2
+        exit 1
+    }
+done
+touch aclocal.m4 configure config.h.in Makefile.in src/Makefile.in tests/Makefile.in
 
 ./configure && make
 

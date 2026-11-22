@@ -3,9 +3,10 @@
 
 AC_INIT([inference-translator], m4_esyscmd([cat VERSION | tr -d ' \n']), [claire@gnu-ai.org])
 AC_CONFIG_SRCDIR([src/main.c])
-# NB: no -Werror here - automake prefix-matches our install.sh against
-# its required aux file install-sh and warns; with -Werror that warning
-# would break every fresh build (autogen.sh / autoreconf -i).
+# NB: the one-shot installer is scripts/install.sh, NOT a top-level
+# install.sh: the top srcdir is the aux dir here, and automake >= 1.17
+# turns "'install.sh' is an anachronism" into a hard error, which broke
+# autoreconf -i / autogen.sh on recent toolchains.
 AM_INIT_AUTOMAKE([-Wall foreign subdir-objects])
 
 AC_CANONICAL_HOST
