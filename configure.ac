@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2026 Claire Ivanenka <claire@gnu-ai.org>
 
-AC_INIT([inference-translator], [0.1.0], [claire@gnu-ai.org])
+AC_INIT([inference-translator], m4_esyscmd([cat VERSION | tr -d ' \n']), [claire@gnu-ai.org])
 AC_CONFIG_SRCDIR([src/main.c])
 # NB: no -Werror here - automake prefix-matches our install.sh against
 # its required aux file install-sh and warns; with -Werror that warning
