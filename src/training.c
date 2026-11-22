@@ -204,6 +204,35 @@ inf_training_search (const char *ndjson, const char *query,
     return l;
 }
 
+/* inf_reply_prompt: bounded grounding prompt for a neuron-backed /reply:
+   "question: QUERY\ncontexte: CONTEXT" with both parts truncated to fit;
+   always NUL-terminated, returns the length written. */
+size_t
+inf_reply_prompt (char *out, size_t outsz, const char *query,
+                  const char *context)
+{
+    if (out == NULL || outsz == 0)
+        return 0;
+    if (query == NULL)
+        query = "";
+    if (context == NULL)
+        context = "";
+    size_t ql = strlen (query);
+    if (ql > 512)
+        ql = 512;
+    size_t cl = strlen (context);
+    if (cl > 2048)
+        cl = 2048;
+    int n = snprintf (out, outsz, "question: %.*s\ncontexte: %.*s",
+                      (int) ql, query, (int) cl, context);
+    if (n < 0)
+      {
+        out[0] = '\0';
+        return 0;
+      }
+    return (size_t) n >= outsz ? outsz - 1 : (size_t) n;
+}
+
 size_t
 inf_training_search_list (const char *ndjson, const char *query,
                           char *out, size_t outsz, size_t max_hits)

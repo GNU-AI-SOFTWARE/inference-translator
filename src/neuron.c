@@ -157,3 +157,29 @@ inf_text_to_vector (const char *text, double *out, size_t n)
       }
     return n;
 }
+
+/* inf_vector_command: render the "input v1,...,vN" write command for the
+ * neuron translator from a vector (comma-separated %.6f), bounded and
+ * NUL-terminated; returns the length written. */
+size_t
+inf_vector_command (char *out, size_t outsz, const double *vec, size_t n)
+{
+    if (out == NULL || outsz == 0)
+        return 0;
+    size_t w = 0;
+    int m = snprintf (out, outsz, "input ");
+    if (m < 0)
+        return 0;
+    w = (size_t) m < outsz ? (size_t) m : outsz - 1;
+    for (size_t i = 0; i < n && w + 1 < outsz; i++)
+      {
+        m = snprintf (out + w, outsz - w, "%s%.6f", i > 0 ? "," : "",
+                      vec != NULL ? vec[i] : 0.0);
+        if (m < 0)
+            break;
+        if ((size_t) m >= outsz - w)
+            m = (int) (outsz - w) - 1;
+        w += (size_t) m;
+      }
+    return w;
+}
