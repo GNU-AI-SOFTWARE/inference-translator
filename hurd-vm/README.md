@@ -30,13 +30,18 @@ $ chmod +x guest-*.sh inject-src.sh
 # 2) test 100% offline de inference-translator (recommandé) :
 $ git clone https://github.com/GNU-AI-SOFTWARE/inference-translator ~/inference-translator
 $ cd ~/inference-translator && autoreconf -i && cd ~/mistral-vm-debian-hurd
+#   autoreconf -i MUST succeed (automake >= 1.17): the guest image has no
+#   autotools and guest-inference.sh now refuses an incomplete generated
+#   build system (GUEST-BUILD-KO) instead of dying in make
 $ tar czf ~/inference-src.tar.gz -C ~ inference-translator
 $ ./inject-src.sh debian-hurd-amd64-20260314.img ~/inference-src.tar.gz
 $ python3 hurd_vm.py debian-hurd-amd64-20260314.img guest-inference.sh --ram 2G
 ```
 
-Attendu : `test_contract` 36/36, `test_fs` 28/28, `test_cli.sh` OK,
-`test_posix.sh` SKIP 77 avant montage puis OK, `cat /inference/request`
+Attendu : `make check` 6/6 PASS — `test_cli.sh`, `test_client.sh` (fallback
+ptyrun : pas de `script(1)` sur l'image Hurd), `test_contract` 36/36,
+`test_fs` 34/34, `test_client` 120/120, `test_posix.sh` OK (`/inference`
+monté par le script avant `make check`) ; puis `cat /inference/request`
 = JSON exact du contrat, `status` = `parsed`, override `task` pris en
 compte, `GUEST-INF-OK`, `GUESTRC=0`, exit code 0 du driver, puis
 `guest powered off cleanly`.

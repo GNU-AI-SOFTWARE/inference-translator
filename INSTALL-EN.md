@@ -53,10 +53,10 @@ sudo make install            # binaries + man page
 Or all at once, automatic installation:
 
 ```sh
-./install.sh                 # installs dependencies if root, builds, tests, installs
-./install.sh --no-check      # skip the test suite
-./install.sh --prefix=/usr   # change the install prefix
-./install.sh --help
+./scripts/install.sh                 # installs dependencies if root, builds, tests, installs
+./scripts/install.sh --no-check      # skip the test suite
+./scripts/install.sh --prefix=/usr   # change the install prefix
+./scripts/install.sh --help
 ```
 
 ## 3. What gets installed

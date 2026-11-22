@@ -51,10 +51,10 @@ sudo make install            # binaires + page de man
 Ou en une fois, installation automatique :
 
 ```sh
-./install.sh                 # installe les dépendances si root, compile, teste, installe
-./install.sh --no-check      # sans la suite de tests
-./install.sh --prefix=/usr   # change le préfixe d'installation
-./install.sh --help
+./scripts/install.sh                 # installe les dépendances si root, compile, teste, installe
+./scripts/install.sh --no-check      # sans la suite de tests
+./scripts/install.sh --prefix=/usr   # change le préfixe d'installation
+./scripts/install.sh --help
 ```
 
 ## 3. Ce qui est installé
