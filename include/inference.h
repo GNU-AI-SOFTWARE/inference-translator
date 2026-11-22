@@ -398,6 +398,12 @@ size_t inf_text_to_vector (const char *text, double *out, size_t n);
 size_t inf_vector_command (char *out, size_t outsz, const double *vec,
                            size_t n);
 
+/* inf_vector_to_text: decode a neuron output vector into a short
+ * printable string (inverse spirit of inf_text_to_vector); bounded,
+ * NUL-terminated, returns the length written. */
+size_t inf_vector_to_text (char *out, size_t outsz, const double *vals,
+                           size_t n);
+
 /* --- /reply: search the training cache -------------------------------
  *
  * inf_training_search: scan an NDJSON cache of training records (one
