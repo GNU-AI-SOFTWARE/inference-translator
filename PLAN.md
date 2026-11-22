@@ -639,6 +639,13 @@ phases sont prioritaires.
   réponse libre en fidélité mesurée (citations résolubles) ; toutes
   les métriques sont lisibles en POSIX pur (`cat /db/status`).
 - **Dépend de** : phases 9–10 + orchestrator phase 5.
+- Le composant d'entraînement manquant est livré :
+  `scripts/train-from-db.py` lit `training_data` depuis `/db` (psql,
+  repli cache NDJSON), découpe les conversations en paires
+  question→réponse, entraîne le MLP sigmoïde (même forward et même
+  init déterministe que `neuron-translator`) par backprop, et émet un
+  `.nn` v2 chargeable (`echo 'load /tmp/model.nn' | tee /llm1`) — la
+  boucle se ferme : `/db` → `.nn` → `/llm1…N` → `/reply`.
 
 ---
 
