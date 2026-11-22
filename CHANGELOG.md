@@ -114,6 +114,14 @@ par un bump de `version`.
   le remount de `httpfs` sur `/page` fait désormais `settrans -g -f` puis
   jusqu'à 6 tentatives de `settrans -a` (sur Hurd, la suppression de
   l'ancien translator peut laguer d'un instant).
+- **Écritures `/db` du client jamais traitées** : le translator data-base
+  n'assemble une ligne que sur le `\n` final (`io_write`), et le client
+  écrivait ses enregistrements sans — les inserts `training_data` étaient
+  perdus et la lecture renvoyait le slot statut initial (compteurs à 0).
+  Nouveau `write_root_line` (ajoute le `\n`) utilisé pour toutes les
+  écritures `/db` (`/db status`, `/db count`, enregistrements
+  d'entraînement). Les écritures `/llmN` restent sans `\n` (le
+  neuron-translator traite chaque write entier).
 - **Listings HF tronqués à 1000 entrées** : l'API tree pagine à 1000
   entrées par page avec un curseur `Link: rel="next"` — `/hf list`,
   `/hf sync` et `/entrainement hf://…` suivent désormais toutes les pages

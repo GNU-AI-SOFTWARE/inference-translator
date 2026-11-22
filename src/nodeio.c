@@ -243,6 +243,23 @@ write_root (const char *mount, const char *data, size_t len)
     return 0;
 }
 
+/* write_root_line — same, but appends the trailing '\n' the line
+ * protocol of the /db translator requires: its io_write only processes
+ * a line once the newline arrives, so a write without '\n' is silently
+ * dropped and the next read returns the previous (stale) response. */
+int
+write_root_line (const char *mount, const char *data, size_t len)
+{
+    char *buf = malloc (len + 1);
+    if (buf == NULL)
+        return -1;
+    memcpy (buf, data, len);
+    buf[len] = '\n';
+    int rc = write_root (mount, buf, len + 1);
+    free (buf);
+    return rc;
+}
+
 ssize_t
 read_root (const char *mount, char *out, size_t outsz)
 {
