@@ -19,9 +19,13 @@ $ for f in guest-inference.sh guest-netfix.sh inject-src.sh; do
 > done
 $ chmod +x guest-*.sh inject-src.sh
 
-# 1) diagnostic/réparation réseau du guest (optionnel) :
-$ python3 hurd_vm.py debian-hurd-amd64-20260314.img guest-netfix.sh --ram 2G
-# attendu : DNS-OK et HTTP-OK (eth0 10.0.2.15/24, gw 10.0.2.2, DNS 10.0.2.3)
+# 1) réseau du guest : intégré à guest-inference.sh (guest_net : pfinet
+#    statique sur eth0 10.0.2.15/24 gw 10.0.2.2, resolv.conf DNS 10.0.2.3,
+#    retries TCP, épinglage /etc/hosts de secours huggingface.co /
+#    datasets-server.huggingface.co / github.com).  guest-netfix.sh reste
+#    disponible pour le diagnostic manuel :
+#    python3 hurd_vm.py debian-hurd-amd64-20260314.img guest-netfix.sh --ram 2G
+# attendu : DNS-OK et HTTP-OK
 
 # 2) test 100% offline de inference-translator (recommandé) :
 $ git clone https://github.com/GNU-AI-SOFTWARE/inference-translator ~/inference-translator

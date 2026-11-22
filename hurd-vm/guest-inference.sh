@@ -8,10 +8,13 @@
 #
 #   python3 hurd_vm.py <image> guest-inference.sh --ram 2G
 #
-# Offline by default: the preinstalled image ships gcc and make but
-# no autoconf/automake/git, and its network is unreliable (see
-# guest-netfix.sh).  Pre-generate configure on the host, pack the
-# tree and inject it into the CI image first:
+# The build is offline by default (pre-injected tarball below), but
+# the guest network is set up at the top of this script (guest_net:
+# pfinet on eth0 with the QEMU user-mode parameters, resolv.conf,
+# DNS retries, /etc/hosts fallbacks) so the git-clone fallback and
+# any HF smoke test work.  The preinstalled image ships gcc and make
+# but no autoconf/automake/git, so pre-generate configure on the
+# host, pack the tree and inject it into the CI image first:
 #
 #   git clone https://github.com/GNU-AI-SOFTWARE/inference-translator ~/inference-translator
 #   cd ~/inference-translator && autoreconf -i && cd ~
@@ -23,6 +26,58 @@
 
 set -eu
 export DEBIAN_FRONTEND=noninteractive
+
+# --- guest network ------------------------------------------------------
+# QEMU user-mode networking (10.0.2.0/24, gateway 10.0.2.2, DNS
+# 10.0.2.3): attach pfinet statically to eth0 (ifup often fails on a
+# stale /run/network/ifstate), write resolv.conf, retry DNS over TCP
+# when UDP is broken through slirp, and pin /etc/hosts fallbacks for
+# the hosts the tests touch when the resolver fails.  Best effort:
+# markers only, the build itself is offline.
+guest_net () {
+    rm -f /etc/resolv.conf
+    printf 'nameserver 10.0.2.3\noptions timeout:2 attempts:2\n' \
+        > /etc/resolv.conf
+    rm -rf /run/network/ifstate 2>/dev/null
+    mkdir -p /run/network 2>/dev/null
+    : > /run/network/ifstate 2>/dev/null || true
+    settrans -fg /servers/socket/2 /hurd/pfinet \
+        -i /dev/eth0 -a 10.0.2.15 -m 255.255.255.0 -g 10.0.2.2 2>/dev/null \
+    || settrans -a /servers/socket/2 /hurd/pfinet \
+        -i eth0 -a 10.0.2.15 -m 255.255.255.0 -g 10.0.2.2 2>/dev/null \
+    || echo "WARN: pfinet attach failed"
+    sleep 2
+    i=0
+    until getent hosts deb.debian.org >/dev/null 2>&1; do
+        i=$((i+1))
+        [ "$i" -ge 10 ] && break
+        sleep 2
+    done
+    if ! getent hosts deb.debian.org >/dev/null 2>&1; then
+        printf 'nameserver 10.0.2.3\noptions usevc timeout:2 attempts:2\n' \
+            > /etc/resolv.conf
+    fi
+    pin_host () {
+        ip=$1 name=$2
+        getent hosts "$name" >/dev/null 2>&1 && return 0
+        grep -qw "$name" /etc/hosts 2>/dev/null && return 0
+        echo "$ip $name" >> /etc/hosts
+    }
+    pin_host 18.239.50.80 huggingface.co
+    pin_host 18.239.105.46 datasets-server.huggingface.co
+    pin_host 140.82.121.4 github.com
+    if getent hosts deb.debian.org >/dev/null 2>&1; then
+        echo "DNS-OK"
+    else
+        echo "DNS-KO (offline mode)"
+    fi
+    if wget -q -O /dev/null --timeout=5 http://deb.debian.org/ 2>/dev/null; then
+        echo "HTTP-OK"
+    else
+        echo "HTTP-KO (offline mode)"
+    fi
+}
+guest_net
 
 cd /root
 if [ -f inference-src.tar.gz ]; then
@@ -49,10 +104,11 @@ mkdir -p /inference
 settrans -a /inference ./src/inference-translator
 
 make check || { cat tests/test-suite.log 2>/dev/null || true; exit 1; }
-# expected on Hurd: test_contract 36/36, test_fs 29/29, test_cli.sh OK,
-#           test_posix.sh OK (mounted).  Note: test_posix.sh ends with
-#           the task override set to "translate", which is sticky by
-#           contract, so the manual demo below shows task=translate.
+# expected on Hurd (6 tests): test_cli.sh, test_client.sh (ptyrun
+# fallback: no script(1) on Hurd), test_contract 36/36, test_fs 34/34,
+# test_client 120/120, test_posix.sh OK (mounted).  test_posix.sh ends
+# with the task override reset to "auto" (re-detected), so the manual
+# demo below starts clean and sets "translate" explicitly.
 
 # Manual demo of the POSIX interface (make check already ran
 # test_posix.sh against the mounted translator):
@@ -74,4 +130,12 @@ if ./src/inference --mount /inference </dev/null >/dev/null 2>&1; then
 fi
 
 settrans -g /inference
+
+# network smoke marker (informational; the build above is offline)
+if getent hosts huggingface.co >/dev/null 2>&1; then
+    echo "HF-DNS-OK"
+else
+    echo "HF-DNS-KO (hosts fallback pinned)"
+fi
+
 echo GUEST-INF-OK
