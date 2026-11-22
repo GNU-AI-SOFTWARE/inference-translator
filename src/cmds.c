@@ -224,6 +224,17 @@ shell_quote (char *dst, size_t dstsz, const char *s)
     dst[n] = '\0';
 }
 
+/* narrate_path — narration for an absolute path outside g_mount
+   (e.g. /llm1, /page): narrate() would wrongly prefix g_mount. */
+static void
+narrate_path (const char *verb, const char *path)
+{
+    if (inf_client_color ())
+        printf ("\033[2m→ %s %s\033[0m\n", verb, path);
+    else
+        printf ("→ %s %s\n", verb, path);
+}
+
 /* dns_ensure_host — auto-DNS: when the host of URL is not an IP
    literal and /etc/hosts does not know it, resolve it once (getent)
    and append "IP host" to /etc/hosts, so httpfs — which relies on the
@@ -271,8 +282,45 @@ dns_ensure_host (const char *url)
     pclose (f);
     if (ip[0] == '\0')
       {
-        printf ("  DNS: %s introuvable (getent) — /etc/hosts inchangé\n",
-                host);
+        /* No answer: in a QEMU user-net VM the DNS forwarder is
+           10.0.2.3; when /etc/resolv.conf has no nameserver at all,
+           append it (root) and retry once. */
+        char rc[8192];
+        ssize_t rn = 0;
+        int rfd = open ("/etc/resolv.conf", O_RDONLY);
+        if (rfd >= 0)
+          {
+            rn = read (rfd, rc, sizeof rc - 1);
+            close (rfd);
+            if (rn < 0)
+                rn = 0;
+          }
+        rc[rn] = '\0';
+        if (strstr (rc, "nameserver") == NULL)
+          {
+            rfd = open ("/etc/resolv.conf", O_WRONLY | O_APPEND | O_CREAT,
+                        0644);
+            if (rfd >= 0)
+              {
+                (void) write (rfd, "nameserver 10.0.2.3\n", 20);
+                close (rfd);
+                printf ("  DNS: aucun nameserver dans /etc/resolv.conf — "
+                        "ajout de 10.0.2.3 (DNS QEMU user-net), nouvel essai\n");
+                FILE *f2 = popen (cmd, "r");
+                if (f2 != NULL)
+                  {
+                    if (fgets (line, sizeof line, f2) != NULL)
+                        sscanf (line, "%63s", ip);
+                    pclose (f2);
+                  }
+              }
+          }
+      }
+    if (ip[0] == '\0')
+      {
+        printf ("  DNS: %s introuvable (getent) — /etc/hosts inchangé\n"
+                "  (VM QEMU user-net : vérifiez « nameserver 10.0.2.3 » dans "
+                "/etc/resolv.conf)\n", host);
         return;
       }
     fd = open ("/etc/hosts", O_WRONLY | O_APPEND);
@@ -931,7 +979,7 @@ cmd_sigmoid (void)
         char mount[32];
         snprintf (mount, sizeof mount, "/llm%d", i);
         char text[8192];
-        narrate ("read", mount);
+        narrate_path ("read", mount);
         if (read_root (mount, text, sizeof text) < 0)
             continue;
         double vals[64];
@@ -1067,7 +1115,7 @@ train_text (const char *source_url, long http_status, const char *text,
         for (unsigned i = 0; i < in_size; i++)
             off += (size_t) snprintf (incmd + off, sizeof incmd - off,
                                       "%s%.6f", i > 0 ? "," : "", vec[i]);
-        narrate ("write", llm);
+        narrate_path ("write", llm);
         if (write_root (llm, incmd, strlen (incmd)) != 0)
           {
             printf ("  extrait %zu: écriture sur %s refusée (%s) — "
@@ -1076,7 +1124,7 @@ train_text (const char *source_url, long http_status, const char *text,
             continue;
           }
         char out_text[8192];
-        narrate ("read", llm);
+        narrate_path ("read", llm);
         if (read_root (llm, out_text, sizeof out_text) < 0)
           {
             printf ("  extrait %zu: sortie de %s illisible\n", c + 1, llm);
@@ -1581,6 +1629,20 @@ cmd_db (const char *arg)
         db_list (rest);
     else if (strcmp (sub, "count") == 0)
       {
+        /* real counter from the db translator when mounted */
+        const char *req = "{\"status\": true}";
+        if (write_root (g_db, req, strlen (req)) == 0)
+          {
+            char resp[8192];
+            if (read_root (g_db, resp, sizeof resp) >= 0)
+              {
+                double n = 0;
+                resp[strcspn (resp, "\r\n")] = '\0';
+                if (inf_json_num_field (resp, "training_data", &n) == 0)
+                    printf ("  /db: %.0f enregistrement(s) dans training_data\n",
+                            n);
+              }
+          }
         static char cache[4 * 1024 * 1024];
         ssize_t n = load_training_cache (cache, sizeof cache);
         size_t total = 0;
