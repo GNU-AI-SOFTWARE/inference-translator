@@ -219,10 +219,18 @@ réponse des neurones contrainte à ces extraits, citations
 - [ ] **inference-translator phase 9** — grounding du prompt `>` :
       préfixe `?` ou `/grounded [question]` → recherche dans
       `/db/training_data` → `write /inference/params`
-      (`grounded` + `context`) → `/submit` ; équivalent POSIX pur ;
-      extension versionnée des contrats (types 1 et 3 :
-      `params.grounded`, `params.context`, `result.sources`,
-      `result.grounded`) ; `SPEC.md` + tests POSIX + `make check` vert.
+      (`grounded` + `context`) → `/submit` ; la réponse est **calculée
+      par le neurone** sur les extraits de `/db` (comme `/entrainement`
+      : `inf_text_to_vector` → `write /llm1…N/input` → lecture
+      `Output:`), paire {prompt, context, sortie} réenregistrée dans
+      `/db` ; équivalent POSIX pur ; extension versionnée des contrats
+      (types 1 et 3 : `params.grounded`, `params.context`,
+      `result.sources`, `result.grounded`) ; `SPEC.md` + tests POSIX +
+      `make check` vert.
+- [ ] **neuron-translator** : aucune évolution de contrat requise
+      (v1.0 gelé : `input` / section `Output:`) — la réponse ancrée
+      réutilise `inf_text_to_vector` + `write /llmK/input` côté client,
+      comme `/entrainement` et `/sigmoid`.
 - [ ] **orchestrator-translator** (fil des phases 3/5) : distribuer
       `params.context` aux N instances `/llm1…N` ; exiger et agréger
       les citations `sources` quand `grounded` est vrai ; statut
@@ -232,8 +240,10 @@ réponse des neurones contrainte à ces extraits, citations
       (curseur POSIX), métriques de grounding dans `/db/status`
       (taux de citations résolubles, `empty`, latence).
 - [ ] **inference-translator phase 10** — `/reply` réaligné sur `/db`
-      comme source de vérité (le cache NDJSON local n'est plus qu'un
-      miroir en lecture) ; `/db search MOT…` servi par la base.
+      comme source de vérité, réponse = sortie du neurone (champ
+      `output` de `training_data`, ou ré-exécution de `/llm1…N` sur les
+      extraits trouvés) ; le cache NDJSON local n'est plus qu'un miroir
+      en lecture ; `/db search MOT…` servi par la base.
 - [ ] **inference-translator phase 11** — fidélité et métriques :
       l'évaluateur pénalise les réponses non ancrées quand
       `grounded: true` ; métriques lisibles en POSIX pur

@@ -569,10 +569,25 @@ phases sont prioritaires.
 - **Équivalent POSIX pur** :
   `echo '{"grounded": true}' | tee /inference/params` puis
   `echo "…" | tee /inference/prompt` puis `cat /inference/request`.
+- **Réponse produite par le neurone** : la réponse n'est pas une chaîne
+  retrouvée dans `/db`, elle est **calculée par `neuron-translator`**
+  sur le matériau d'ancrage — exactement comme le fait déjà
+  `/entrainement` (`collect_neurons` sur `/llm1…N`,
+  `inf_text_to_vector`, `write input`, lecture de la section `Output:`
+  via `inf_parse_neuron_output`) : le prompt `?` et les extraits
+  retenus de `/db` sont vectorisés (même `inf_text_to_vector` que
+  `/entrainement`), écrits dans `input` de chaque `/llm1…N`, et la
+  sortie lue du neurone constitue la réponse ; les enregistrements
+  `/entrainement` (champ `output` de `training_data`) servent de
+  référence. La paire {prompt, context, sortie} produite est
+  réenregistrée dans `/db` (`training_data`) — la boucle
+  d'apprentissage se ferme.
 - **Côté orchestrateur** (fil des phases 3 et 5) : `params.context`
   est distribué aux N instances `/llm1…N` — l'entrée de chaque neurone
-  est le prompt **plus** les extraits de `/db` ; l'agrégateur exige
-  les citations `sources` quand `grounded` est vrai.
+  est le prompt **plus** les extraits de `/db` vectorisés ;
+  l'agrégateur (vote majoritaire / moyenne, phase 1) combine les
+  sorties des neurones et exige les citations `sources` quand
+  `grounded` est vrai.
 - **Livrable** : contrat gelé (mise à jour de `SPEC.md`), client,
   translator et orchestrateur implémentés, tests POSIX
   (`make check` vert).
@@ -589,9 +604,13 @@ phases sont prioritaires.
 
 - `/reply [question]` interroge directement `/db` (recherche par
   mots-clés servie par `data-base-translator`, lecture paginée de
-  `/db/training_data`) au lieu du seul cache local NDJSON ; ce cache,
-  rempli par `/learn`, `/learn-code`, `/entrainement` et `/hf sync`,
-  n'est plus qu'un **miroir en lecture** de `training_data`.
+  `/db/training_data`) au lieu du seul cache local NDJSON ; la réponse
+  est la **sortie du neurone** — champ `output` des enregistrements
+  `/entrainement`, ou ré-exécution de `/llm1…N` sur les extraits
+  retrouvés (`inf_text_to_vector` → `write input` → lecture `Output:`)
+  ; ce cache, rempli par `/learn`, `/learn-code`, `/entrainement` et
+  `/hf sync`, n'est plus qu'un **miroir en lecture** de
+  `training_data`.
 - `/db search MOT…` sert la base elle-même ; `/db list [N]` et
   `/db count` lisent `/db` directement.
 - **Livrable** : client réaligné, `SPEC.md` et page de manuel mis à
