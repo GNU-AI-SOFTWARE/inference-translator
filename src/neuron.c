@@ -183,3 +183,45 @@ inf_vector_command (char *out, size_t outsz, const double *vec, size_t n)
       }
     return w;
 }
+
+/* inf_vector_to_text: decode a neuron output vector into a short
+   printable string, the inverse spirit of inf_text_to_vector: output
+   unit i owns the byte range [i*256/n, (i+1)*256/n) and emits the byte
+   lo + floor(sigmoid(raw) * len); the vector is cycled to produce n*8
+   characters; non-printable bytes become '.'.  Deterministic, bounded,
+   NUL-terminated; returns the length written.  With untrained weights
+   the decoded text is noise by design -- load a .nn for readable
+   output. */
+size_t
+inf_vector_to_text (char *out, size_t outsz, const double *vals, size_t n)
+{
+    if (out == NULL || outsz == 0)
+        return 0;
+    if (vals == NULL || n == 0)
+      {
+        out[0] = '\0';
+        return 0;
+      }
+    size_t want = n * 8;
+    if (want > outsz - 1)
+        want = outsz - 1;
+    size_t w = 0;
+    for (size_t j = 0; j < want; j++)
+      {
+        size_t i = j % n;
+        size_t lo = i * 256 / n;
+        size_t hi = (i + 1) * 256 / n;
+        if (hi <= lo)
+            hi = lo + 1;
+        if (hi > 256)
+            hi = 256;
+        double s = inf_sigmoid (vals[i]);
+        unsigned byte = (unsigned) (lo + (size_t) (s * (double) (hi - lo)));
+        if (byte > 255)
+            byte = 255;
+        unsigned char c = (unsigned char) byte;
+        out[w++] = (c >= 32 && c < 127) ? (char) c : '.';
+      }
+    out[w] = '\0';
+    return w;
+}
