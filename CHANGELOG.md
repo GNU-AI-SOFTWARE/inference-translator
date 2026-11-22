@@ -40,6 +40,15 @@ par un bump de `version`.
   extraction : `make` ne tente plus jamais de régénérer `configure` /
   `Makefile.in` dans le guest (image sans autotools).
 
+- **Client / pty de test** : `test_client.sh` échouait sur GNU/Hurd (chemin
+  ptyrun) — `ptyrun` écrivait l'stdin sur le master avant que le client ne
+  passe en mode raw ; au `tcsetattr` (clear de `ICANON`) le serveur pty Hurd
+  peut jeter la file canonique, la première ligne était perdue et `/submit`
+  trouvait un buffer vide (« narration write prompt missing »). Le client
+  passe désormais en mode raw **avant** toute sortie (`src/client.c`), et
+  `ptyrun` n'envoie l'stdin qu'après la première sortie du fils (grâce 2 s
+  pour un fils silencieux). Vérifié en local (Linux, ptyrun forcé) : OK.
+
 - **`tests/test_fs.c`** : le nœud `version` était comparé à une version
   codée en dur (`"0.1.0"`) — le test cassait à chaque bump (v1.0.0). Il
   attend désormais la macro `VERSION` (via `PACKAGE_VERSION`/`config.h`),
