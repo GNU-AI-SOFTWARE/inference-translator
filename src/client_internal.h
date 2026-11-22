@@ -43,6 +43,7 @@ void cmd_status (void);
 void narrate_orch (const char *verb, const char *node);
 ssize_t orch_read (const char *node, char *out, size_t outsz);
 int write_root (const char *mount, const char *data, size_t len);
+int write_root_line (const char *mount, const char *data, size_t len);
 ssize_t read_root (const char *mount, char *out, size_t outsz);
 
 /* cmds.c (slash commands) */

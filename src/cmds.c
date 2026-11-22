@@ -568,7 +568,7 @@ db_store_and_report (const char *rec)
         printf ("\033[2m\u2192 write %s\033[0m\n", g_db);
     else
         printf ("\u2192 write %s\n", g_db);
-    if (write_root (g_db, rec, strlen (rec)) != 0)
+    if (write_root_line (g_db, rec, strlen (rec)) != 0)
       {
         printf ("  /db injoignable (%s) — montez db-translator :\n"
                 "    settrans -a /db db-translator --conninfo \"dbname=gnuai\"\n",
@@ -1548,7 +1548,7 @@ db_status (void)
         printf ("\033[2m→ write %s\033[0m\n", g_db);
     else
         printf ("→ write %s\n", g_db);
-    if (write_root (g_db, req, strlen (req)) != 0)
+    if (write_root_line (g_db, req, strlen (req)) != 0)
       {
         printf ("  /db injoignable (%s) — montez db-translator :\n"
                 "    settrans -a /db db-translator --conninfo \"dbname=gnuai\"\n",
@@ -1690,7 +1690,7 @@ cmd_db (const char *arg)
       {
         /* real counter from the db translator when mounted */
         const char *req = "{\"status\": true}";
-        if (write_root (g_db, req, strlen (req)) == 0)
+        if (write_root_line (g_db, req, strlen (req)) == 0)
           {
             char resp[8192];
             if (read_root (g_db, resp, sizeof resp) >= 0)
