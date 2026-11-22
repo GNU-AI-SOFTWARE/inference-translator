@@ -126,6 +126,29 @@ main (void)
            && read_node (INF_NODE_TASK) == 6
            && strcmp (buf, "custom") == 0);
 
+    /* --- write "auto" clears the manual override ------------------- */
+
+    check ("sticky override still wins on a new keyword prompt",
+           inf_fs_write (&fs, INF_NODE_PROMPT, "traduis bonjour",
+                         strlen ("traduis bonjour")) == 0
+           && read_node (INF_NODE_TASK) == 6
+           && strcmp (buf, "custom") == 0);
+    check ("write auto accepted (trailing newline trimmed)",
+           inf_fs_write (&fs, INF_NODE_TASK, "auto\n", 5) == 0);
+    check ("task re-detected from the current prompt after auto",
+           read_node (INF_NODE_TASK) == 9
+           && strcmp (buf, "translate") == 0);
+    check ("request carries the re-detected task",
+           read_node (INF_NODE_REQUEST) >= 0
+           && strcmp (buf, "{\"prompt\":\"traduis bonjour\","
+                          "\"task\":\"translate\",\"urls\":[],"
+                          "\"params\":{}}") == 0);
+    check ("override no longer sticky: the next prompt is detected",
+           inf_fs_write (&fs, INF_NODE_PROMPT, "résume ceci",
+                         strlen ("résume ceci")) == 0
+           && read_node (INF_NODE_TASK) == 9
+           && strcmp (buf, "summarize") == 0);
+
     /* --- read-only and unknown nodes ------------------------------ */
 
     check ("writing a read-only node is refused",
