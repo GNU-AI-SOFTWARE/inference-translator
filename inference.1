@@ -182,11 +182,18 @@ Visualise l'état des neurones montés (/llm1..N) : pour chaque sortie courante
 du neuron-translator, affiche la valeur brute, son activation sigmoïde et une
 barre ASCII.
 .TP
-.BI /entrainement " URL"
-Télécharge la page (dataset, ex. https://huggingface.co/datasets), la découpe
-en extraits, fait passer chaque extrait par le neuron-translator (écriture
-.IR input
-sur /llm1..N, lecture de la sortie) puis enregistre la paire
+.BI /entrainement " URL|hf://… [dossier-local]"
+Télécharge la page (dataset, ex. https://huggingface.co/datasets) — ou, avec
+une URL
+.IR hf://buckets/<owner>/<bucket> ,
+tous les fichiers du dépôt HF, copiés dans
+.I [dossier-local]
+(défaut ./data, comme
+.IR "hf sync ./data hf://…" )
+— puis découpe en extraits, fait passer chaque extrait par le
+neuron-translator (écriture
+.I input
+sur /llm1..N, lecture de la sortie) et enregistre la paire
 {entrée, sortie du neurone} dans
 .I /db
 (table

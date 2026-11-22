@@ -184,6 +184,13 @@ main (void)
            inf_client_parse_command ("/entrainement https://huggingface.co/datasets",
                                     arg, sizeof arg) == INF_CMD_TRAINING
            && strcmp (arg, "https://huggingface.co/datasets") == 0);
+    check ("/entrainement parses with hf:// arg",
+           inf_client_parse_command ("/entrainement hf://buckets/clairemariecoralie/cyber-security-bucket",
+                                    arg, sizeof arg) == INF_CMD_TRAINING
+           && strcmp (arg, "hf://buckets/clairemariecoralie/cyber-security-bucket") == 0);
+    check ("inf_hf_url detects hf:// only",
+           inf_hf_url ("hf://buckets/a/b") && !inf_hf_url ("https://a.b")
+           && !inf_hf_url ("hf:/x") && !inf_hf_url (NULL));
 
     /* --- auto-DNS helpers (inf_url_host / inf_hosts_has) ------------- */
 

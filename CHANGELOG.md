@@ -50,7 +50,7 @@ par un bump de `version`.
   `inf_history_*` testé (64/64, contrat 36/36 — 13 commandes).
 - **`/uptime`** (14e commande slash) : version du client, version du
   translator (lue dans `<montage>/version`) et uptime de la session ;
-  formateur pur `inf_format_uptime` testé (104/104, contrat 36/36 — 19
+  formateur pur `inf_format_uptime` testé (106/106, contrat 36/36 — 19
   commandes). Documentation à jour : `inference(1)` (options `--db`,
   `--orchestrate`, `--history`, commandes `/learn` `/read-code`
   `/learn-code` `/watch` `/history` `/uptime`, flèches haut/bas,
@@ -65,12 +65,14 @@ par un bump de `version`.
   `/llm1..N` — sorties courantes lues sur chaque nœud, activation sigmoïde
   et barre ASCII par sortie (`inf_parse_neuron_output`, `inf_sigmoid`,
   `inf_sigmoid_render`, nouveau module `src/neuron.c`).
-- **`/entrainement URL`** (17e commande) : télécharge la page (ex.
-  `https://huggingface.co/datasets`), la découpe en extraits, fait passer
-  chaque extrait par le neuron-translator (`input` vectorisé
-  déterministiquement via `inf_text_to_vector`, lecture de la sortie), puis
-  enregistre `{input, output, neuron}` dans `/db` (`training_data`) et le
-  cache local.
+- **`/entrainement URL|hf://… [dir]`** (17e commande) : télécharge la page
+  (ex. `https://huggingface.co/datasets`) **ou un dépôt `hf://`** (ex.
+  `hf://buckets/clairemariecoralie/cyber-security-bucket`, fichiers
+  téléchargés dans `[dir]`, défaut `./data`, comme `hf sync ./data hf://…`),
+  découpe en extraits, fait passer chaque extrait par le
+  neuron-translator (`input` vectorisé déterministiquement via
+  `inf_text_to_vector`, lecture de la sortie), puis enregistre
+  `{input, output, neuron}` dans `/db` (`training_data`) et le cache local.
 - **DNS automatique** : à chaque URL ajoutée (`/fetch`, `/learn`,
   `/read-code`, `/learn-code`, `/entrainement`), l'hôte est extrait
   (`inf_url_host`), et s'il n'est ni une IP littérale ni présent dans

@@ -29,7 +29,7 @@ const struct inf_action inf_actions[] =
     { "/watch", "surveiller /orchestrate : status (instances) puis résultat agrégé en streaming" },
     { "/reply", "répondre selon les données d'entraînement enregistrées (cache local)" },
     { "/sigmoid", "visualiser l'état des neurones montés (/llmN) après sigmoïde" },
-    { "/entrainement", "remplir /db avec les données d'une URL, passées par le neuron-translator" },
+    { "/entrainement", "remplir /db avec les données d'une URL ou hf://…, passées par le neuron-translator" },
     { "/hf", "hf://buckets/... : lister (list) ou synchroniser (sync) un bucket/dataset HF vers un dossier local, puis ingérer dans /db" },
     { "/db", "explorer la base : /db status | /db search MOT | /db list [N] | /db count" },
 };

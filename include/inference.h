@@ -401,6 +401,10 @@ size_t inf_training_search (const char *ndjson, const char *query,
 
 /* --- /hf: Hugging Face buckets/datasets over plain HTTP --------------
  *
+ * inf_hf_url: true for hf://... URLs (handled by /hf and /entrainement). */
+bool inf_hf_url (const char *url);
+
+/*
  * inf_hf_parse: parse hf://[buckets|datasets|models]/<owner>/<repo>[/<path>]
  * into KIND ("buckets"/"datasets"/"models"), OWNER, REPO and PATH
  * (possibly empty).  Returns false on a malformed hf:// URL. */
