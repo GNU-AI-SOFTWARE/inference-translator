@@ -15,17 +15,6 @@
  * of the slave without O_NOCTTY), so isatty(0) && isatty(1) hold and
  * the interactive client starts.  Exit status: the child's exit
  * status, or 124 when the 60 s watchdog fires.
- *
- * stdin is held in a buffer and forwarded to the master only once the
- * child's output burst has been quiet for 300 ms (or after 5 s with no
- * output at all, so a silent child still gets its stdin): the
- * interactive client finishes its termios setup within that first
- * burst, so piped input then lands in the raw queue and can never be
- * flushed by an ICANON clear on pty servers that discard the canonical
- * queue on mode change (GNU/Hurd).  poll() is always called with
- * timeout -1 -- on GNU/Hurd a finite timeout on a lone pty master
- * never wakes -- and the wait for the quiet period is paced with
- * nanosleep() while stdin sits at EOF (POLLHUP spins).
  */
 
 #define _XOPEN_SOURCE 700
@@ -36,32 +25,11 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
 
-static double
-mono (void)
-{
-  struct timespec ts;
-  clock_gettime (CLOCK_MONOTONIC, &ts);
-  return (double) ts.tv_sec + (double) ts.tv_nsec / 1e9;
-}
-
-static int
-write_all (int fd, const char *buf, size_t len)
-{
-  while (len > 0)
-    {
-      ssize_t w = write (fd, buf, len);
-      if (w <= 0)
-        return -1;
-      buf += w;
-      len -= (size_t) w;
-    }
-  return 0;
-}
+static int dbg;
+#define DBG(...) do { if (dbg) fprintf (stderr, "ptyrun: " __VA_ARGS__); } while (0)
 
 static pid_t child_pid;
 
@@ -82,6 +50,7 @@ main (int argc, char **argv)
       fprintf (stderr, "usage: ptyrun CMD [ARG...]\n");
       return 2;
     }
+  dbg = getenv ("PTYRUN_DEBUG") != NULL;
 
   int master = posix_openpt (O_RDWR | O_NOCTTY);
   if (master < 0 || grantpt (master) != 0 || unlockpt (master) != 0)
@@ -95,6 +64,7 @@ main (int argc, char **argv)
       perror ("ptsname");
       return 2;
     }
+  DBG ("master=%d slave=%s\n", master, slave_name);
 
   signal (SIGALRM, on_alarm);
   alarm (60);
@@ -105,6 +75,8 @@ main (int argc, char **argv)
       perror ("fork");
       return 2;
     }
+  if (child_pid > 0)
+    DBG ("child pid=%d\n", (int) child_pid);
   if (child_pid == 0)
     {
       setsid ();
@@ -121,16 +93,7 @@ main (int argc, char **argv)
       _exit (127);
     }
 
-  int stdin_open = 1;     /* keep polling stdin until ready && EOF */
-  int stdin_eof = 0;
-  int ready = 0;          /* forward stdin only after the child's first output
-                             burst went quiet (its termios setup is inside
-                             that burst), or after 5 s if it stays silent */
-  int seen_output = 0;
-  double t_start = mono (), t_last_out = 0.0;
-  char hold[65536];       /* stdin is drained here until ready */
-  size_t hold_len = 0;
-
+  int stdin_open = 1;
   for (;;)
     {
       struct pollfd pfd[2];
@@ -149,9 +112,6 @@ main (int argc, char **argv)
       n++;
       m = n - 1;
 
-      /* Always poll(-1): on GNU/Hurd a finite timeout on a lone pty master
-         never wakes, so no timeout is used and the quiet-period wait is
-         paced with nanosleep() below. */
       if (poll (pfd, n, -1) < 0)
         {
           if (errno == EINTR)
@@ -159,30 +119,24 @@ main (int argc, char **argv)
           break;
         }
 
-      int progress = 0;
       if (stdin_open && (pfd[0].revents & (POLLIN | POLLHUP | POLLERR)))
         {
           char buf[4096];
           ssize_t r = read (STDIN_FILENO, buf, sizeof buf);
-          if (r > 0)
-            {
-              if (ready)
-                {
-                  if (write_all (master, buf, (size_t) r) < 0)
-                    break;
-                }
-              else if (hold_len + (size_t) r <= sizeof hold)
-                {
-                  memcpy (hold + hold_len, buf, (size_t) r);
-                  hold_len += (size_t) r;
-                }
-              progress = 1;
-            }
+          DBG ("stdin read %zd\n", r);
+          if (r <= 0)
+            stdin_open = 0;     /* keep the master open: no EOF for the child */
           else
             {
-              stdin_eof = 1;    /* keep the master open: no EOF for the child */
-              if (ready)
-                stdin_open = 0;
+              DBG ("stdin->master %zd bytes\n", r);
+              ssize_t off = 0;
+              while (off < r)
+                {
+                  ssize_t w = write (master, buf + off, (size_t) (r - off));
+                  if (w <= 0)
+                    break;
+                  off += w;
+                }
             }
         }
 
@@ -190,35 +144,16 @@ main (int argc, char **argv)
         {
           char buf[4096];
           ssize_t r = read (master, buf, sizeof buf);
+          DBG ("master read %zd errno=%d\n", r, r <= 0 ? errno : 0);
           if (r <= 0)
             break;              /* child gone: the pty master reports EOF/EIO */
-          if (write_all (STDOUT_FILENO, buf, (size_t) r) < 0)
-            break;
-          seen_output = 1;
-          t_last_out = mono ();
-          progress = 1;
-        }
-
-      if (!ready)
-        {
-          double now = mono ();
-          if ((seen_output && now - t_last_out >= 0.300)
-              || (!seen_output && now - t_start >= 5.0))
+          ssize_t off = 0;
+          while (off < r)
             {
-              ready = 1;
-              if (hold_len > 0)
-                {
-                  if (write_all (master, hold, hold_len) < 0)
-                    break;
-                  hold_len = 0;
-                }
-              if (stdin_eof)
-                stdin_open = 0;
-            }
-          else if (!progress)
-            {
-              struct timespec ts = { 0, 20 * 1000 * 1000 };
-              nanosleep (&ts, NULL);  /* pace the spin while waiting */
+              ssize_t w = write (STDOUT_FILENO, buf + off, (size_t) (r - off));
+              if (w <= 0)
+                break;
+              off += w;
             }
         }
     }
@@ -227,6 +162,7 @@ main (int argc, char **argv)
   int status = 0;
   while (waitpid (child_pid, &status, 0) < 0 && errno == EINTR)
     ;
+  DBG ("child exit=%d\n", WIFEXITED (status) ? WEXITSTATUS (status) : -1);
   if (WIFEXITED (status))
     return WEXITSTATUS (status);
   return 1;

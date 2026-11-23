@@ -39,7 +39,7 @@ else
     PTY="$D/ptyrun"
     ${CC:-cc} -O2 -o "$PTY" "$TESTDIR/ptyrun.c" 2>/dev/null \
         || { say "test_client: SKIP: no script(1) and no C compiler for ptyrun.c"; exit 77; }
-    pty() { "$PTY" sh -c "$1"; }
+    pty() { PTYRUN_DEBUG=1 "$PTY" sh -c "$1"; }
 fi
 
 M="$D/inference"

@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -65,6 +66,10 @@ time_t g_start;                          /* client session start (uptime) */
 
 char g_buf[INF_PROMPT_MAX];      /* prompt being composed */
 size_t g_blen;
+/* input drained before the raw switch, served first by read_line */
+char g_in_stash[4096];
+size_t g_in_stash_len;
+size_t g_in_stash_pos;
 void
 restore_tio (void)
 {
@@ -130,6 +135,18 @@ erase_last_char (char *line, size_t len)
     fflush (stdout);
 }
 
+/* One input byte: the pre-raw stash first, then the tty. */
+static ssize_t
+read_byte (char *c)
+{
+    if (g_in_stash_pos < g_in_stash_len)
+      {
+        *c = g_in_stash[g_in_stash_pos++];
+        return 1;
+      }
+    return read (STDIN_FILENO, c, 1);
+}
+
 /* Read one line in raw mode.  Returns false on EOF/quit.
  * Handles DEL/backspace, CSI escape sequences (left arrow erases),
  * Tab completion and a leading backslash (escapes the '/', so the
@@ -141,7 +158,7 @@ read_line (char *line, size_t linesz, size_t *outlen, bool *escaped)
     for (;;)
       {
         char c;
-        ssize_t n = read (STDIN_FILENO, &c, 1);
+        ssize_t n = read_byte (&c);
         if (n <= 0)
             return false;
         if (c == '\r' || c == '\n')
@@ -164,14 +181,14 @@ read_line (char *line, size_t linesz, size_t *outlen, bool *escaped)
         if (c == 0x1b)                   /* ESC: CSI sequence (arrows, Del) */
           {
             char c2;
-            if (read (STDIN_FILENO, &c2, 1) <= 0)
+            if (read_byte (&c2) <= 0)
                 return false;
             if (c2 == '[')
               {
                 char c3;
                 for (;;)
                   {
-                    if (read (STDIN_FILENO, &c3, 1) <= 0)
+                    if (read_byte (&c3) <= 0)
                         return false;
                     if (c3 >= 0x40 && c3 <= 0x7e)
                         break;      /* final byte of the CSI sequence */
@@ -403,6 +420,27 @@ main (int argc, char **argv)
     inf_client_banner (banner, sizeof banner, VERSION);
     fputs (banner, stdout);
     cmd_status ();
+
+    /* Drain the input that already arrived before the raw switch: pty
+       servers that flush the canonical queue when ICANON is cleared
+       (GNU/Hurd) would otherwise eat it.  In canonical mode FIONREAD
+       counts only complete lines and read() returns them without
+       blocking, so this never waits for the user. */
+    {
+      int pending = 0;
+      if (ioctl (STDIN_FILENO, FIONREAD, &pending) == 0)
+        while (pending > 0 && g_in_stash_len < sizeof g_in_stash)
+          {
+            char b[256];
+            ssize_t r = read (STDIN_FILENO, b,
+                              (size_t) (pending > 256 ? 256 : pending));
+            if (r <= 0)
+              break;
+            memcpy (g_in_stash + g_in_stash_len, b, (size_t) r);
+            g_in_stash_len += (size_t) r;
+            pending -= (int) r;
+          }
+    }
 
     /* POSIX cbreak: disable the line discipline and the echo, keep
        OPOST|ONLCR so '\n' in the output still emits CR LF (cfmakeraw
