@@ -47,15 +47,19 @@ guest_net () {
     rm -f /etc/resolv.conf
     printf 'nameserver 10.0.2.3\noptions timeout:2 attempts:2\n' \
         > /etc/resolv.conf
+    # NOTE: this script runs under set -e; every fallible network
+    # command below must be guarded with ||, or the whole guest script
+    # aborts with rc=1 before any build output.
     if ifconfig eth0 2>/dev/null | grep -q 'inet 10.0.2.15'; then
         echo "eth0 already 10.0.2.15 (boot DHCP via netdde)"
     else
-        rm -rf /run/network/ifstate 2>/dev/null
-        mkdir -p /run/network 2>/dev/null
+        rm -rf /run/network/ifstate 2>/dev/null || true
+        mkdir -p /run/network 2>/dev/null || true
         : > /run/network/ifstate 2>/dev/null || true
-        ifdown eth0 2>/dev/null
-        ifup eth0 2>&1
-        echo "ifup eth0 rc=$?"
+        ifdown eth0 2>/dev/null || true
+        rc=0
+        ifup eth0 2>&1 || rc=$?
+        echo "ifup eth0 rc=$rc"
         sleep 2
     fi
     if ! ifconfig eth0 2>/dev/null | grep -q 'inet 10.0.2.15'; then
@@ -66,8 +70,8 @@ guest_net () {
         if ! showtrans /servers/socket/2 2>&1 | grep -q .; then
             echo "WARN: /servers/socket/2 free; last resort: static pfinet"
             settrans -a /servers/socket/2 /hurd/pfinet \
-                -i /dev/eth0 -a 10.0.2.15 -m 255.255.255.0 -g 10.0.2.2 2>&1
-            echo "pfinet attach rc=$?"
+                -i /dev/eth0 -a 10.0.2.15 -m 255.255.255.0 -g 10.0.2.2 2>&1 \
+                || echo "WARN: pfinet attach rc=$?"
             sleep 2
             ifconfig -a 2>&1 || true
         else
