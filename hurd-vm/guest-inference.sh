@@ -93,6 +93,10 @@ guest_net () {
     pin_host 18.239.50.80 huggingface.co
     pin_host 18.239.105.46 datasets-server.huggingface.co
     pin_host 140.82.121.4 github.com
+    # slirp's UDP DNS (10.0.2.3) is often broken on Hurd; apt/git need
+    # deb.debian.org, so pin it too (resolved on the host beforehand):
+    pin_host 194.71.11.165 deb.debian.org
+    pin_host 194.71.11.165 cdimage.debian.org
     if getent hosts deb.debian.org >/dev/null 2>&1; then
         echo "DNS-OK"
     else
