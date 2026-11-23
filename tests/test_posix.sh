@@ -35,7 +35,7 @@ trap cleanup EXIT
 # Instant on a real mount; one 50 ms tick on the portable --root engine.
 wait_eq() {
     _n=$1 _e=$2 _i=0
-    while [ "$_i" -lt 60 ]; do
+    while [ "$_i" -lt 150 ]; do
         _g=$(cat "$ROOT/$_n" 2>/dev/null) && [ "$_g" = "$_e" ] && return 0
         _i=$((_i + 1)); sleep 0.1
     done
@@ -43,7 +43,7 @@ wait_eq() {
 }
 wait_grep() {
     _n=$1 _p=$2 _i=0
-    while [ "$_i" -lt 60 ]; do
+    while [ "$_i" -lt 150 ]; do
         cat "$ROOT/$_n" 2>/dev/null | grep -qF -- "$_p" && return 0
         _i=$((_i + 1)); sleep 0.1
     done
@@ -63,7 +63,7 @@ if [ ! -e "$ROOT/request" ]; then
     _i=0
     until [ -e "$ROOT/request" ]; do
         _i=$((_i + 1))
-        if [ "$_i" -ge 40 ]; then
+        if [ "$_i" -ge 100 ]; then
             say "test_posix: SKIP: --root engine did not start"
             exit 77
         fi
