@@ -34,24 +34,46 @@ export DEBIAN_FRONTEND=noninteractive
 
 # --- guest network ------------------------------------------------------
 # QEMU user-mode networking (10.0.2.0/24, gateway 10.0.2.2, DNS
-# 10.0.2.3): attach pfinet statically to eth0 (ifup often fails on a
-# stale /run/network/ifstate), write resolv.conf, retry DNS over TCP
-# when UDP is broken through slirp, and pin /etc/hosts fallbacks for
-# the hosts the tests touch when the resolver fails.  Best effort:
+# 10.0.2.3).  The image's NIC is driven by netdde, started by ifup at
+# boot with DHCP from slirp (bound to 10.0.2.15); a stale
+# /run/network/ifstate can make ifup skip eth0, so clear it and
+# re-run ifup.  NEVER attach pfinet with -fg on /servers/socket/2:
+# that kills netdde and removes /dev/eth0, leaving the guest with no
+# network at all (the QEMU hostfwd then answers "Connection reset").
+# pfinet is a last resort, only on a free socket server.  resolv.conf,
+# DNS-over-TCP retry and /etc/hosts fallbacks as before.  Best effort:
 # markers only, the build itself is offline.
 guest_net () {
     rm -f /etc/resolv.conf
     printf 'nameserver 10.0.2.3\noptions timeout:2 attempts:2\n' \
         > /etc/resolv.conf
-    rm -rf /run/network/ifstate 2>/dev/null
-    mkdir -p /run/network 2>/dev/null
-    : > /run/network/ifstate 2>/dev/null || true
-    settrans -fg /servers/socket/2 /hurd/pfinet \
-        -i /dev/eth0 -a 10.0.2.15 -m 255.255.255.0 -g 10.0.2.2 2>/dev/null \
-    || settrans -a /servers/socket/2 /hurd/pfinet \
-        -i eth0 -a 10.0.2.15 -m 255.255.255.0 -g 10.0.2.2 2>/dev/null \
-    || echo "WARN: pfinet attach failed"
-    sleep 2
+    if ifconfig eth0 2>/dev/null | grep -q 'inet 10.0.2.15'; then
+        echo "eth0 already 10.0.2.15 (boot DHCP via netdde)"
+    else
+        rm -rf /run/network/ifstate 2>/dev/null
+        mkdir -p /run/network 2>/dev/null
+        : > /run/network/ifstate 2>/dev/null || true
+        ifdown eth0 2>/dev/null
+        ifup eth0 2>&1
+        echo "ifup eth0 rc=$?"
+        sleep 2
+    fi
+    if ! ifconfig eth0 2>/dev/null | grep -q 'inet 10.0.2.15'; then
+        echo "WARN: eth0 has no 10.0.2.15; device and server state:"
+        ifconfig -a 2>&1 || true
+        ls -l /dev/eth* 2>&1 || true
+        showtrans /servers/socket/2 2>&1 || true
+        if ! showtrans /servers/socket/2 2>&1 | grep -q .; then
+            echo "WARN: /servers/socket/2 free; last resort: static pfinet"
+            settrans -a /servers/socket/2 /hurd/pfinet \
+                -i /dev/eth0 -a 10.0.2.15 -m 255.255.255.0 -g 10.0.2.2 2>&1
+            echo "pfinet attach rc=$?"
+            sleep 2
+            ifconfig -a 2>&1 || true
+        else
+            echo "WARN: /servers/socket/2 already has a translator; not touching it"
+        fi
+    fi
     i=0
     until getent hosts deb.debian.org >/dev/null 2>&1; do
         i=$((i+1))
