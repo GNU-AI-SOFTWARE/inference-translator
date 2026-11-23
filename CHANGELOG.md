@@ -27,6 +27,11 @@ par un bump de `version`.
 
 ### Corrigé
 
+- **Client** : `src/client.c` n'incluait pas `<config.h>`, donc `VERSION`
+  retombait sur le fallback codé en dur `"0.1.0"` — le client affichait
+  0.1.0 pendant que le translator affichait 0.1.1 (vu dans le log de la VM
+  Hurd). `PACKAGE_VERSION` de `config.h` est désormais utilisé.
+
 - **Build** : `install.sh` déplacé vers `scripts/install.sh` — la racine
   étant le aux-dir d'autoconf, automake ≥ 1.17 transformait
   « 'install.sh' is an anachronism » en erreur dure et cassait
