@@ -27,6 +27,14 @@ par un bump de `version`.
 
 ### Corrigé
 
+- **Tests** : `test_posix.sh` ne fait plus SKIP 77 sur les hôtes non-Hurd —
+  le binaire portable gagne un mode `--root DIR` (`src/main.c`) qui
+  matérialise le moteur de nœuds `inf_fs` en fichiers sous `DIR`, et le
+  test y exécute les mêmes vérifications POSIX (attentes pollées ~6 s,
+  instantanées sur un vrai montage). Sur Hurd, comportement inchangé.
+  `src/cli.c` : guard `#ifndef INF_PROMPT_MAX` et `narrate()` sans warnings
+  `strncpy` (memmove/memcpy bornés).
+
 - **Client** : `src/client.c` n'incluait pas `<config.h>`, donc `VERSION`
   retombait sur le fallback codé en dur `"0.1.0"` — le client affichait
   0.1.0 pendant que le translator affichait 0.1.1 (vu dans le log de la VM

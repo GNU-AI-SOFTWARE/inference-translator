@@ -36,7 +36,9 @@
 
 #include "inference.h"
 
+#ifndef INF_PROMPT_MAX
 #define INF_PROMPT_MAX      4096
+#endif
 #define INF_LOG_LINES       3
 #define INF_SPINNER_DELAY_MS 120
 
@@ -82,12 +84,12 @@ static void
 narrate (const char *msg)
 {
     for (int i = 0; i < INF_LOG_LINES - 1; i++)
-      {
-        strncpy (g_log[i], g_log[i + 1], sizeof g_log[i] - 1);
-        g_log[i][sizeof g_log[i] - 1] = '\0';
-      }
-    strncpy (g_log[INF_LOG_LINES - 1], msg, sizeof g_log[INF_LOG_LINES - 1] - 1);
-    g_log[INF_LOG_LINES - 1][sizeof g_log[INF_LOG_LINES - 1] - 1] = '\0';
+        memmove (g_log[i], g_log[i + 1], sizeof g_log[i]);
+    size_t n = strlen (msg);
+    if (n >= sizeof g_log[INF_LOG_LINES - 1])
+        n = sizeof g_log[INF_LOG_LINES - 1] - 1;
+    memcpy (g_log[INF_LOG_LINES - 1], msg, n);
+    g_log[INF_LOG_LINES - 1][n] = '\0';
 }
 
 /* Redraw the whole main window: Actions, Expressions, narration log
