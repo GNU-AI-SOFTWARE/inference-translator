@@ -41,16 +41,19 @@ par un bump de `version`.
   `Makefile.in` dans le guest (image sans autotools).
 
 - **pty de test (GNU/Hurd)** : `test_client.sh` échouait sur Hurd via ptyrun.
-  Deux causes : (a) l'stdin pipé arrivait sur le master avant le `tcsetattr`
-  raw du client et au clear de `ICANON` le serveur pty Hurd peut jeter la
-  file canonique (première ligne perdue, `/submit` à buffer vide) ; (b) un
-  `poll()` à timeout fini sur un master pty seul ne se réveille jamais sur
-  Hurd (les sessions pty restaient vides). `tests/ptyrun.c` : `poll(-1)`
-  uniquement, stdin toujours dans le set, entrée retenue dans un buffer
-  jusqu'à **300 ms de silence** après la première sortie du fils (repli 5 s
-  si muet), attente cadencée par `nanosleep`. `tests/test_client.sh` dump les
+  Deux mécanismes Hurd en cause : (a) tant que rien n'a été écrit sur le
+  master, le côté esclave ne progresse pas (les variantes qui retenaient
+  l'stdin en attendant la première sortie du fils produisaient des sessions
+  pty complètement vides) ; (b) au clear de `ICANON`, le serveur pty Hurd
+  peut jeter la file canonique, d'où la perte de la première ligne pipée
+  (`/submit` à buffer vide). Correctifs : `tests/ptyrun.c` revient à
+  l'écriture immédiate sur le master (plus de gate, plus de timeout de
+  poll) avec un mode `PTYRUN_DEBUG=1` ; `src/client.c` draine avant le
+  `tcsetattr` raw l'entrée déjà arrivée (`FIONREAD` + `read` en mode
+  canonique, sans bloquer) dans un stash que `read_line` consomme d'abord —
+  la 1re ligne pipée survit donc au flush. `tests/test_client.sh` dump les
   captures pty (`cat -v`) dans le log en cas d'échec. Vérifié en local
-  (Linux) : ptyrun forcé et `script(1)` OK, sonde NOT-YET vs EARLY.
+  (Linux) : ptyrun forcé et `script(1)` OK.
 
 - **`tests/test_fs.c`** : le nœud `version` était comparé à une version
   codée en dur (`"0.1.0"`) — le test cassait à chaque bump (v1.0.0). Il
