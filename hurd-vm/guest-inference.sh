@@ -55,7 +55,14 @@ guest_net () {
     # NOTE: this script runs under set -e; every fallible network
     # command below must be guarded with ||, or the whole guest script
     # aborts with rc=1 before any build output.
-    if ifconfig eth0 2>/dev/null | grep -q "inet $GUEST_ADDR"; then
+    if [ "${HURD_VM_MODE:-slirp}" = "tap" ]; then
+        # bridged mode (HURD_VM_TAP on the host): no slirp DHCP, pin the
+        # LAN address directly
+        echo "tap mode: static $GUEST_ADDR gw $GUEST_GW dns $GUEST_DNS"
+        ifconfig eth0 "$GUEST_ADDR" netmask "$GUEST_MASK" up 2>&1 || true
+        route add default "$GUEST_GW" 2>&1 || true
+        sleep 1
+    elif ifconfig eth0 2>/dev/null | grep -q "inet $GUEST_ADDR"; then
         echo "eth0 already $GUEST_ADDR (boot DHCP via netdde)"
     else
         rm -rf /run/network/ifstate 2>/dev/null || true
