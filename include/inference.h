@@ -169,6 +169,11 @@ void inf_fs_init (struct inf_fs *fs);
 const char *const *inf_fs_nodes (void);
 size_t inf_fs_node_count (void);
 
+/* Portable --root DIR engine (src/rootmode.c): serve the /inference
+   node tree as plain files under DIR, for tests on hosts where no
+   translator can be mounted (and on Hurd without a mount). */
+int inf_rootmode_serve (const char *dir);
+
 /* Write to a node: only "prompt" and "task" accept writes.  Returns 0
  * on success, -1 on error (unknown node, read-only node, invalid task
  * name). */

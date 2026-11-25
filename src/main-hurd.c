@@ -80,6 +80,8 @@ print_help (void)
     printf ("      --cli      ncurses interface prototype"
             " (not in this build: no ncurses)\n");
 #endif
+    printf ("      --root DIR  portable test mode: serve the /inference node\n"
+            "                  engine as plain files under DIR (no mount needed)\n");
     printf ("\n");
     printf ("As a translator (GNU/Hurd):\n");
     printf ("  settrans -a /inference inference-translator\n");
@@ -117,6 +119,20 @@ main (int argc, char *argv[])
 {
     if (handle_gnu_options (argc, argv))
         return EXIT_SUCCESS;
+
+    /* Portable file-backed engine (tests, even on Hurd without a
+     * mount): shared with main.c, lives in libinfcore (rootmode.c). */
+    for (int i = 1; i < argc; i++)
+        if (strcmp (argv[i], "--root") == 0)
+          {
+            if (++i >= argc)
+              {
+                fprintf (stderr,
+                         "inference-translator: --root needs a directory\n");
+                return EXIT_FAILURE;
+              }
+            return inf_rootmode_serve (argv[i]);
+          }
 
     for (int i = 1; i < argc; i++)
         if (strcmp (argv[i], "--cli") == 0)

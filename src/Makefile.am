@@ -13,7 +13,7 @@ bin_PROGRAMS = inference-translator inference
 # binary and the test suite.
 noinst_LIBRARIES = libinfcore.a
 libinfcore_a_SOURCES = contract.c expr.c actions.c spinner.c fs.c \
-    client-core.c training.c text.c stats.c jsonlite.c history.c neuron.c
+    client-core.c training.c text.c stats.c jsonlite.c history.c neuron.c rootmode.c
 
 # --- The phase 2 client `inference` ---------------------------------
 #
