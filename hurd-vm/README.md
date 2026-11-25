@@ -19,11 +19,17 @@ $ for f in guest-inference.sh guest-netfix.sh inject-src.sh; do
 > done
 $ chmod +x guest-*.sh inject-src.sh
 
-# 1) réseau du guest : intégré à guest-inference.sh (guest_net : pfinet
-#    statique sur eth0 10.0.2.15/24 gw 10.0.2.2, resolv.conf DNS 10.0.2.3,
-#    retries TCP, épinglage /etc/hosts de secours huggingface.co /
-#    datasets-server.huggingface.co / github.com).  guest-netfix.sh reste
-#    disponible pour le diagnostic manuel :
+# 1) réseau du guest : intégré à guest-inference.sh (guest_net : ifup/DHCP
+#    via netdde d'abord (l'image bind 10.0.2.15 au boot), puis si échec
+#    (ifstate périmé) ifconfig statique + route par défaut, puis dhclient -1,
+#    et pfinet en dernier recours sur un /servers/socket/2 libre seulement ;
+#    resolv.conf DNS 10.0.2.3 + retries TCP, épinglage /etc/hosts de secours
+#    deb.debian.org / cdimage.debian.org / huggingface.co /
+#    datasets-server.huggingface.co / github.com).  Les adresses viennent des
+#    HURD_VM_GUEST_* exportées par le driver (HURD_VM_NET côté hôte, ex.
+#    10.106.74.0/24 -> guest 10.106.74.15) ; en mode bridge HURD_VM_TAP,
+#    HURD_VM_MODE=tap configure l'IP LAN en statique.
+#    guest-netfix.sh reste disponible pour le diagnostic manuel :
 #    python3 hurd_vm.py debian-hurd-amd64-20260314.img guest-netfix.sh --ram 2G
 # attendu : DNS-OK et HTTP-OK
 
@@ -48,12 +54,25 @@ compte, `GUEST-INF-OK`, `GUESTRC=0`, exit code 0 du driver, puis
 
 ## SSH dans la VM
 
-Le port hôte 2222 n'existe que tant que QEMU tourne (le driver coupe
-la VM à la fin du run).  Pour une session interactive : injecter sa
-clé publique dans `/root/.ssh/authorized_keys` de la copie CI une fois
-pour toutes via un petit script guest, puis, pendant que le driver
-tourne, depuis un second terminal de l'hôte :
-`ssh -i ~/.ssh/id_ed25519 -p 2222 root@127.0.0.1`.
+Le port hôte 2222 n'existe que tant que QEMU tourne.  Avec `--keep`,
+le driver laisse QEMU tourner (session détachée) et démarre le sshd
+du guest avec un self-check (listeners IPv4 `:22`, bannières), donc
+après le run :
+
+```console
+$ python3 hurd_vm.py debian-hurd-amd64-20260314.img guest-inference.sh \
+      --ram 2G --keep --set-root-pass gnu-ai --ssh-key ~/.ssh/hurd_vm_ed25519.pub
+$ ssh -i ~/.ssh/hurd_vm_ed25519 -o IdentitiesOnly=yes -o PasswordAuthentication=no \
+      -p 2222 root@127.0.0.1
+```
+
+`--ssh-key` injecte la clé publique dans `/root/.ssh/authorized_keys`
+de la copie CI (comme `--set-root-pass` fixe le mot de passe root) ;
+passer les **mêmes flags à chaque run** réutilise la copie CI telle quelle.
+`HURD_VM_SSH_BIND=<ip hôte>` ajoute un second forward sur cette IP (LAN) ;
+`HURD_VM_NET=<sous-réseau>` change le réseau slirp (guest = <net>.15) ;
+`HURD_VM_TAP=<iface>` passe en bridge (IP LAN réelle pour la VM).
+Voir le README de mistral-vm-debian-hurd pour le détail.
 
 ## Console interactive : `launch_inference.py`
 
