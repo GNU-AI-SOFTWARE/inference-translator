@@ -54,6 +54,9 @@ if [ ! -e "$ROOT/request" ]; then
     # portable host: run the file-backed engine in a temp directory
     if ! "$BIN" --help 2>/dev/null | grep -q -- '--root'; then
         say "test_posix: SKIP: /inference is not mounted and no --root support"
+        # diagnose why: missing binary? help output without --root?
+        ls -l "$BIN" 2>&1 || true
+        "$BIN" --help 2>&1 | head -6 || true
         exit 77
     fi
     FAKE_ROOT=$(mktemp -d)

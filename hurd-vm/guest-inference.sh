@@ -31,6 +31,10 @@
 
 set -eu
 export DEBIAN_FRONTEND=noninteractive
+# locale-clean builds: the ssh client often sends LANG/LC_* for a locale
+# the guest image has not generated yet, which breaks perl/groupadd/dpkg
+# mid-apt ("invalid group ID ''" -> ssl-cert/postgresql left unconfigured)
+export LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 # --- guest network ------------------------------------------------------
 # QEMU user-mode networking (10.0.2.0/24, gateway 10.0.2.2, DNS
