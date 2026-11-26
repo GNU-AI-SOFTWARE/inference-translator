@@ -342,9 +342,9 @@ size_t inf_json_unescape (char *s);
  * partial) JSON fragment -- e.g. a mid-array chunk of a stored .json
  * source file.  Object keys (a literal followed by ':') and literals
  * without any letter or digit are skipped; each kept literal is
- * unescaped (twice when it still carries JSON-in-JSON escapes) and the
- * results are joined with newlines.  Returns 0 when at least one
- * literal was kept, -1 otherwise. */
+ * unescaped once (the surrounding record was already decoded by
+ * inf_json_str_field) and the results are joined with newlines.
+ * Returns 0 when at least one literal was kept, -1 otherwise. */
 int inf_json_strings_extract (const char *json, char *out, size_t outsz);
 
 /* Phase 4: does BUF carry the expected role of a /orchestrate node?

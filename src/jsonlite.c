@@ -275,10 +275,9 @@ inf_json_strings_extract (const char *json, char *out, size_t outsz)
           p = open + 1;
           continue;
         }
-      inf_json_unescape (lit);
-      if (strstr (lit, "\\n") != NULL || strstr (lit, "\\\"") != NULL
-          || strstr (lit, "\\\\") != NULL || strstr (lit, "\\u") != NULL)
-        inf_json_unescape (lit); /* JSON-in-JSON: decode a second time */
+      inf_json_unescape (lit); /* one level: str_field already decoded the
+                                  record; a second pass would turn the \\n
+                                  of source code into a real newline */
       char *s = lit;
       while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r')
         s++;

@@ -612,7 +612,7 @@ main (void)
     check ("inf_json_strings_extract rejects plain text", er == -1);
     char e3[512];
     er = inf_json_strings_extract (
-        "[{\"input\":\"a\\\\nb\"},{\"from\":\"human\",\"value\":\"salut \\\\u00e9\"}]",
+        "[{\"input\":\"a\\nb\"},{\"from\":\"human\",\"value\":\"salut \\u00e9\"}]",
         e3, sizeof e3);
     check ("inf_json_strings_extract unescapes literals, skips keys",
            er == 0 && strstr (e3, "a\nb") != NULL
@@ -643,6 +643,28 @@ main (void)
     cr = inf_extract_code_block ("```sh\necho hi\n```", "bash", c3, sizeof c3);
     check ("inf_extract_code_block honors aliases",
            cr == 0 && strcmp (c3, "echo hi\n") == 0);
+
+    /* pipeline: a JSON-wrapped record whose answer holds a python block
+       with a \n string literal must keep it as backslash-n, not a real
+       newline (str_field decodes the record once, the extractor decodes
+       each literal once) */
+    char p_esc1[512], p_rec[768], p_esc2[1024], p_line[1280], p_content[768];
+    char p_lits[768], p_blk[512];
+    const char *chunk = "```python\nsys.stdout.write(\"\\n\".join(out))\n```";
+    inf_json_escape (chunk, p_esc1, sizeof p_esc1);
+    snprintf (p_rec, sizeof p_rec, "{\"answer\":\"%s\"}", p_esc1);
+    inf_json_escape (p_rec, p_esc2, sizeof p_esc2);
+    snprintf (p_line, sizeof p_line, "{\"content\":\"%s\"}", p_esc2);
+    check ("pipeline: str_field decodes one level",
+           inf_json_str_field (p_line, "content", p_content, sizeof p_content) == 0
+           && strcmp (p_content, p_rec) == 0);
+    check ("pipeline: extractor decodes the nested literal once",
+           inf_json_strings_extract (p_content, p_lits, sizeof p_lits) == 0
+           && strstr (p_lits, "sys.stdout.write") != NULL);
+    check ("pipeline: fence extracted from decoded text",
+           inf_extract_code_block (p_lits, "python", p_blk, sizeof p_blk) == 0);
+    check ("pipeline: \\n inside code stays a 2-char escape",
+           strstr (p_blk, "write(\"\\n\".join(out))") != NULL);
 
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;

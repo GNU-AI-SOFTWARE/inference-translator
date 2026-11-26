@@ -1203,36 +1203,42 @@ cmd_code (const char *arg)
         printf ("  enregistrement sans contenu exploitable\n");
         return;
       }
-    char text[262144];
-    snprintf (text, sizeof text, "%s", reply);
-    decode_training_text (text, sizeof text);
     printf ("  code d'après les données d'entraînement (%s) pour « %s » :\n",
             url[0] != '\0' ? url : "cache local", query);
     static char block[262144];
-    if (inf_extract_code_block (text, lang, block, sizeof block) == 0)
+    /* 1) a raw markdown chunk may already carry fences: extract before any
+       unescaping, so a \n inside a code string literal survives */
+    if (inf_extract_code_block (reply, lang, block, sizeof block) != 0)
       {
-        const char *hl_lang = lang != NULL ? lang : inf_lang_detect (url, block);
-        static char hl[262144 * 4];
-        inf_code_highlight (hl, sizeof hl, block, hl_lang,
-                            inf_client_color ());
-        fputs (hl, stdout);
-        size_t bl = strlen (block);
-        if (bl > 0 && block[bl - 1] != '\n')
+        /* 2) JSON-wrapped record: decode, then look for fences again */
+        char text[262144];
+        snprintf (text, sizeof text, "%s", reply);
+        decode_training_text (text, sizeof text);
+        if (inf_extract_code_block (text, lang, block, sizeof block) != 0)
+          {
+            /* no fenced block: show the decoded text, one indented line
+               at a time */
+            const char *p = text;
+            printf ("  ");
+            while (*p != '\0')
+              {
+                if (*p == '\n')
+                    printf ("\n  ");
+                else
+                    putchar (*p);
+                p++;
+              }
             printf ("\n");
-        return;
+            return;
+          }
       }
-    /* no fenced block: show the decoded text, one indented line at a time */
-    const char *p = text;
-    printf ("  ");
-    while (*p != '\0')
-      {
-        if (*p == '\n')
-            printf ("\n  ");
-        else
-            putchar (*p);
-        p++;
-      }
-    printf ("\n");
+    const char *hl_lang = lang != NULL ? lang : inf_lang_detect (url, block);
+    static char hl[262144 * 4];
+    inf_code_highlight (hl, sizeof hl, block, hl_lang, inf_client_color ());
+    fputs (hl, stdout);
+    size_t bl = strlen (block);
+    if (bl > 0 && block[bl - 1] != '\n')
+        printf ("\n");
 }
 
 /* --- /sigmoid: visualize the state of the mounted neurons ------------- */
