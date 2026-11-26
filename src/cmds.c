@@ -777,7 +777,7 @@ cmd_editor (void)
     close (fd);
 
     const char *editor = inf_client_editor ();
-    narrate ("write", tmpl);            /* the buffer goes to the editor */
+    narrate_path ("write", tmpl);   /* local file, outside the mount */            /* the buffer goes to the editor */
     char cmd[4400];
     snprintf (cmd, sizeof cmd, "%s '%s'", editor, tmpl);
     pid_t pid = fork ();
@@ -796,7 +796,7 @@ cmd_editor (void)
         return;
       }
 
-    narrate ("read", tmpl);             /* re-read the buffer (SPEC.md §5) */
+    narrate_path ("read", tmpl);    /* local file, outside the mount */             /* re-read the buffer (SPEC.md §5) */
     int rfd = open (tmpl, O_RDONLY);
     if (rfd >= 0)
       {
