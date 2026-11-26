@@ -1136,7 +1136,7 @@ cmd_reply (const char *arg)
 /* --- /code: produce a code snippet from the training data -------------- */
 
 /* block_trivial: a fenced block that is only a placeholder ("# Your
-   code here", "...") is not an answer. */
+   code here", "...", "TODO") is not an answer. */
 static int
 block_trivial (const char *block)
 {
@@ -1144,7 +1144,21 @@ block_trivial (const char *block)
     for (const char *p = block; *p != '\0'; p++)
         if (*p != ' ' && *p != '\n' && *p != '\t' && *p != '\r')
             n++;
-    return n < 10;
+    if (n < 10)
+        return 1;
+    char low[1024];
+    size_t l = 0;
+    for (const char *p = block; *p != '\0' && l + 1 < sizeof low; p++)
+      {
+        char c = *p;
+        low[l++] = (c >= 'A' && c <= 'Z') ? (char) (c + 32) : c;
+      }
+    low[l] = '\0';
+    if (strstr (low, "your code here") != NULL
+        || strstr (low, "your_code_here") != NULL
+        || strstr (low, "insert code here") != NULL)
+        return 1;
+    return 0;
 }
 
 /* try_code_hit: does the NDJSON record LINE yield a usable fenced code
