@@ -1336,7 +1336,7 @@ cmd_code (const char *arg)
                                  sizeof content) == 0)
         reply = content;
     char text[262144];
-    snprintf (text, sizeof text, "%s", reply);
+    snprintf (text, sizeof text, "%.*s", (int) (sizeof text - 1), reply);
     decode_training_text (text, sizeof text);
     (void) inf_json_str_field (firstline, "source_url", url, sizeof url);
     printf ("  source : %s (aucun bloc de code, texte décodé) :\n",
