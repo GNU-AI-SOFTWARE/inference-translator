@@ -1788,9 +1788,34 @@ db_search (const char *query)
         if (inf_json_str_field (line, "content", content, sizeof content)
             != 0)
             content[0] = '\0';
-        content[160] = '\0';
+        /* presentation: same JSON-in-JSON decoding as /reply — pull the
+           text field out of a nested record, unescape the rest, and
+           collapse newlines so the preview stays on one line */
+        if (content[0] == '{' || content[0] == '[' || content[0] == '"')
+          {
+            static const char *fields[] = { "value", "output", "text",
+                                            "content", "answer", NULL };
+            for (int i = 0; fields[i] != NULL; i++)
+              {
+                char sub[65536];
+                if (inf_json_str_field (content, fields[i], sub, sizeof sub) == 0
+                    && sub[0] != '\0')
+                  {
+                    snprintf (content, sizeof content, "%s", sub);
+                    break;
+                  }
+              }
+          }
+        if (strstr (content, "\\n") != NULL || strstr (content, "\\t") != NULL
+            || strstr (content, "\\\"") != NULL || strstr (content, "\\\\") != NULL
+            || strstr (content, "\\u") != NULL)
+          inf_json_unescape (content);
+        for (char *p = content; *p != '\0'; p++)
+          if (*p == '\n' || *p == '\r' || *p == '\t')
+            *p = ' ';
+        content[240] = '\0';
         printf ("    %s\n      %s%s\n", url[0] != '\0' ? url : "(sans url)",
-                content, strlen (content) >= 160 ? "…" : "");
+                content, strlen (content) >= 240 ? "…" : "");
         shown++;
       }
 }
