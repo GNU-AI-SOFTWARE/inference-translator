@@ -1163,8 +1163,9 @@ block_trivial (const char *block)
 
 /* try_code_hit: does the NDJSON record LINE yield a usable fenced code
    block for LANG (NULL = any language)?  Returns 1 and fills BLOCK and
-   URL on success.  Raw chunk first (keeps \n in code intact), then the
-   decoded text. */
+   URL on success.  A JSON-escaped chunk (jsonl record) is decoded first
+   so the block comes out clean; a raw text file is scanned for fences
+   before any unescaping, so a \n inside a code string literal survives. */
 static int
 try_code_hit (const char *line, const char *lang, char *block,
               size_t blocksz, char *url, size_t urlsz)
@@ -1186,10 +1187,26 @@ try_code_hit (const char *line, const char *lang, char *block,
         reply = content;
     if (reply == NULL)
         return 0;
+    char text[262144];
+    /* a backslash-quote or double backslash means the chunk is still
+       JSON-escaped */
+    int jsonish = strstr (reply, "\\\"") != NULL
+        || strstr (reply, "\\\\") != NULL;
+    if (jsonish)
+      {
+        snprintf (text, sizeof text, "%s", reply);
+        decode_training_text (text, sizeof text);
+        if (inf_extract_code_block (text, lang, block, blocksz) == 0
+            && !block_trivial (block))
+            return 1;
+        if (inf_extract_code_block (reply, lang, block, blocksz) == 0
+            && !block_trivial (block))
+            return 1;
+        return 0;
+      }
     if (inf_extract_code_block (reply, lang, block, blocksz) == 0
         && !block_trivial (block))
         return 1;
-    char text[262144];
     snprintf (text, sizeof text, "%s", reply);
     decode_training_text (text, sizeof text);
     if (inf_extract_code_block (text, lang, block, blocksz) == 0
