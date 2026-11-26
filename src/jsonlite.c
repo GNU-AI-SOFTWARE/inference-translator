@@ -116,3 +116,76 @@ inf_orch_role_ok (const char *node, const char *buf)
         return strstr (buf, "\"instances\"") != NULL;
     return strstr (buf, "\"output\"") != NULL;
 }
+
+/* inf_json_unescape: decode JSON string escapes in place (\\, \", \/,
+   \b, \f, \n, \r, \t, \uXXXX basic BMP -> UTF-8).  Returns the new
+   length.  Used to present stored content that was escaped once more
+   than the surrounding record (JSON-in-JSON). */
+size_t
+inf_json_unescape (char *s)
+{
+  char *r = s, *w = s;
+  while (*r)
+    {
+      if (*r == '\\' && r[1] != '\0')
+        {
+          r++;
+          switch (*r)
+            {
+            case 'n': *w++ = '\n'; r++; break;
+            case 't': *w++ = '\t'; r++; break;
+            case 'r': *w++ = '\r'; r++; break;
+            case 'b': *w++ = '\b'; r++; break;
+            case 'f': *w++ = '\f'; r++; break;
+            case '\\': *w++ = '\\'; r++; break;
+            case '"': *w++ = '"'; r++; break;
+            case '/': *w++ = '/'; r++; break;
+            case 'u':
+              {
+                unsigned cp = 0;
+                int ok = 1;
+                for (int i = 1; i <= 4 && r[i] != '\0'; i++)
+                  {
+                    char c = r[i];
+                    cp <<= 4;
+                    if (c >= '0' && c <= '9')
+                      cp |= (unsigned) (c - '0');
+                    else if (c >= 'a' && c <= 'f')
+                      cp |= (unsigned) (c - 'a' + 10);
+                    else if (c >= 'A' && c <= 'F')
+                      cp |= (unsigned) (c - 'A' + 10);
+                    else
+                      { ok = 0; break; }
+                  }
+                if (ok && cp != 0)
+                  {
+                    r += 5;
+                    if (cp < 0x80)
+                      *w++ = (char) cp;
+                    else if (cp < 0x800)
+                      {
+                        *w++ = (char) (0xC0 | (cp >> 6));
+                        *w++ = (char) (0x80 | (cp & 0x3F));
+                      }
+                    else
+                      {
+                        *w++ = (char) (0xE0 | (cp >> 12));
+                        *w++ = (char) (0x80 | ((cp >> 6) & 0x3F));
+                        *w++ = (char) (0x80 | (cp & 0x3F));
+                      }
+                  }
+                else
+                  *w++ = *r++;
+                break;
+              }
+            default:
+              *w++ = *r++;
+              break;
+            }
+        }
+      else
+        *w++ = *r++;
+    }
+  *w = '\0';
+  return (size_t) (w - s);
+}

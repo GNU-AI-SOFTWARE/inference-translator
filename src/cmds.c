@@ -1037,18 +1037,58 @@ cmd_reply (const char *arg)
             url[0] != '\0' ? url : "cache local");
     if (reply != NULL)
       {
-        size_t rl = strlen (reply);
+        /* Presentation: the stored content is often JSON-in-JSON (the
+           source chunk was escaped once when stored), so the text still
+           shows literal \n, \" ...  When the content is itself a JSON
+           record, show its text field; then decode the remaining escape
+           sequences; finally print indented, one line at a time. */
+        char text[262144];
+        snprintf (text, sizeof text, "%s", reply);
+        if (text[0] == '{' || text[0] == '[' || text[0] == '"')
+          {
+            static const char *fields[] = { "value", "output", "text",
+                                            "content", "answer", NULL };
+            for (int i = 0; fields[i] != NULL; i++)
+              {
+                char sub[65536];
+                if (inf_json_str_field (text, fields[i], sub, sizeof sub) == 0
+                    && sub[0] != '\0')
+                  {
+                    snprintf (text, sizeof text, "%s", sub);
+                    break;
+                  }
+              }
+          }
+        if (strstr (text, "\\n") != NULL || strstr (text, "\\t") != NULL
+            || strstr (text, "\\\"") != NULL || strstr (text, "\\\\") != NULL
+            || strstr (text, "\\u") != NULL)
+          inf_json_unescape (text);
+        size_t rl = strlen (text);
         if (rl > 2000)
             rl = 2000;
-        char hl[8192];
-        inf_json_highlight (hl, sizeof hl, reply, inf_client_color ());
-        if (strchr (reply, '{') != NULL || strchr (reply, '[') != NULL)
-            printf ("  %s%s\n", rl < strlen (reply) ? "" : "", hl);
+        if (text[0] == '{' || text[0] == '[')
+          {
+            char hl[8192];
+            inf_json_highlight (hl, sizeof hl, text, inf_client_color ());
+            printf ("  %s%s\n", hl, rl < strlen (text) ? "…" : "");
+          }
         else
-            {
-                fwrite (reply, 1, rl, stdout);
-                printf ("%s\n", rl < strlen (reply) ? "…" : "");
-            }
+          {
+            const char *p = text;
+            printf ("  ");
+            while (*p != '\0' && (size_t) (p - text) < rl)
+              {
+                if (*p == '\n')
+                  {
+                    putchar ('\n');
+                    printf ("  ");
+                  }
+                else
+                  putchar (*p);
+                p++;
+              }
+            printf ("%s\n", rl < strlen (text) ? "…" : "");
+          }
       }
 }
 

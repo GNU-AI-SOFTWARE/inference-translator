@@ -586,6 +586,19 @@ main (void)
     check ("inf_training_filter_new is bounded",
            inf_training_filter_new (fo, 10, nwend, exnd) == 0 && fo[0] == '\0');
 
+    char u1[64] = "a\\nb\\t\\\"c\\\\d\\u0041";
+    size_t ul = inf_json_unescape (u1);
+    check ("inf_json_unescape decodes \\n \\t \\\" \\\\ \\uXXXX",
+           ul == 9 && strcmp (u1, "a\nb\t\"c\\dA") == 0);
+    char u2[64] = "plain text, no escapes";
+    inf_json_unescape (u2);
+    check ("inf_json_unescape leaves plain text unchanged",
+           strcmp (u2, "plain text, no escapes") == 0);
+    char u3[64] = "caf\\u00e9";
+    inf_json_unescape (u3);
+    check ("inf_json_unescape renders \\uXXXX as UTF-8",
+           strcmp (u3, "caf\xc3\xa9") == 0);
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }

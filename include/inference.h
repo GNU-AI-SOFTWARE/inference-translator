@@ -324,6 +324,11 @@ size_t inf_code_highlight (char *out, size_t outsz, const char *code,
 int inf_json_str_field (const char *json, const char *key,
                         char *out, size_t outsz);
 int inf_json_num_field (const char *json, const char *key, double *out);
+/* inf_json_unescape: decode JSON string escapes in place (\\, \", \/,
+ * \b, \f, \n, \r, \t, \uXXXX basic BMP -> UTF-8); returns the new
+ * length.  For stored content that was escaped one level more than the
+ * surrounding record (JSON-in-JSON). */
+size_t inf_json_unescape (char *s);
 
 /* Phase 4: does BUF carry the expected role of a /orchestrate node?
  * In phase 1 (trivfs) every sub-node name serves the same shared slot,
