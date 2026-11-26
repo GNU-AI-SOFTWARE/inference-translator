@@ -84,8 +84,10 @@ inf_rootmode_serve (const char *dir)
     char rbuf[INF_JSON_MAX * 4 + 1];
     char last_prompt[INF_PROMPT_MAX] = "";
     char last_task[256] = "";
-    /* Last content this loop rendered into the "task" node: a read
-       matching it is our own output echoed back, not a user override. */
+    /* Last content this loop rendered into each writable input node:
+       a read matching it is our own output echoed back, not a user
+       write. */
+    char rendered_prompt[INF_PROMPT_MAX] = "";
     char rendered_task[256] = "";
     struct inf_fs fs;
 
@@ -145,18 +147,43 @@ inf_rootmode_serve (const char *dir)
             if (n < 0)
                 continue;
             rbuf[n] = '\0';
-            if (strcmp (node, INF_NODE_TASK) == 0)
+            snprintf (path, sizeof path, "%s/%s", dir, node);
+            char cur[sizeof rbuf];
+            ssize_t cr = read_file (path, cur, sizeof cur);
+            bool is_prompt = strcmp (node, INF_NODE_PROMPT) == 0;
+            bool is_task = strcmp (node, INF_NODE_TASK) == 0;
+            if (is_prompt || is_task)
+              {
+                /* Writable input node: never overwrite a value we did
+                   not render and did not ingest yet — it may be a user
+                   write landing between the input read and this render
+                   (inputs are read earlier in the same loop). */
+                const char *rendered = is_prompt ? rendered_prompt : rendered_task;
+                const char *ingested = is_prompt ? last_prompt : last_task;
+                size_t rl = strlen (rendered), il = strlen (ingested);
+                bool ours = cr >= 0 && (size_t) cr == rl
+                            && memcmp (cur, rendered, rl) == 0;
+                bool seen = cr >= 0 && (size_t) cr == il
+                            && memcmp (cur, ingested, il) == 0;
+                if (!ours && !seen)
+                    continue;
+              }
+            if (cr != n || memcmp (cur, rbuf, (size_t) n) != 0)
+                (void) write_file (path, rbuf, (size_t) n);
+            if (is_task)
               {
                 size_t cp = (size_t) n < sizeof rendered_task - 1
                             ? (size_t) n : sizeof rendered_task - 1;
                 memcpy (rendered_task, rbuf, cp);
                 rendered_task[cp] = '\0';
               }
-            snprintf (path, sizeof path, "%s/%s", dir, node);
-            char cur[sizeof rbuf];
-            ssize_t cr = read_file (path, cur, sizeof cur);
-            if (cr != n || memcmp (cur, rbuf, (size_t) n) != 0)
-                (void) write_file (path, rbuf, (size_t) n);
+            else if (is_prompt)
+              {
+                size_t cp = (size_t) n < sizeof rendered_prompt - 1
+                            ? (size_t) n : sizeof rendered_prompt - 1;
+                memcpy (rendered_prompt, rbuf, cp);
+                rendered_prompt[cp] = '\0';
+              }
           }
         struct timespec ts = { 0, 50 * 1000 * 1000 };
         nanosleep (&ts, NULL);
