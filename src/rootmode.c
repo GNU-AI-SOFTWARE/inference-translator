@@ -84,6 +84,9 @@ inf_rootmode_serve (const char *dir)
     char rbuf[INF_JSON_MAX * 4 + 1];
     char last_prompt[INF_PROMPT_MAX] = "";
     char last_task[256] = "";
+    /* Last content this loop rendered into the "task" node: a read
+       matching it is our own output echoed back, not a user override. */
+    char rendered_task[256] = "";
     struct inf_fs fs;
 
     inf_fs_init (&fs);
@@ -125,7 +128,8 @@ inf_rootmode_serve (const char *dir)
           }
         snprintf (path, sizeof path, "%s/%s", dir, INF_NODE_TASK);
         r = read_file (path, inbuf, sizeof inbuf);
-        if (r >= 0 && strcmp (inbuf, last_task) != 0)
+        if (r >= 0 && strcmp (inbuf, last_task) != 0
+            && strcmp (inbuf, rendered_task) != 0)
           {
             (void) inf_fs_write (&fs, INF_NODE_TASK, inbuf, (size_t) r);
             size_t n = strlen (inbuf);
@@ -141,6 +145,13 @@ inf_rootmode_serve (const char *dir)
             if (n < 0)
                 continue;
             rbuf[n] = '\0';
+            if (strcmp (node, INF_NODE_TASK) == 0)
+              {
+                size_t cp = (size_t) n < sizeof rendered_task - 1
+                            ? (size_t) n : sizeof rendered_task - 1;
+                memcpy (rendered_task, rbuf, cp);
+                rendered_task[cp] = '\0';
+              }
             snprintf (path, sizeof path, "%s/%s", dir, node);
             char cur[sizeof rbuf];
             ssize_t cr = read_file (path, cur, sizeof cur);
