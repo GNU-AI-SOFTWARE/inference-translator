@@ -108,6 +108,8 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
                 cmd = INF_CMD_HF;
             else if (strcmp (inf_actions[i].command, "/db") == 0)
                 cmd = INF_CMD_DB;
+            else if (strcmp (inf_actions[i].command, "/code") == 0)
+                cmd = INF_CMD_CODE;
             else
                 cmd = INF_CMD_QUIT;
 
@@ -115,7 +117,7 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
                  || cmd == INF_CMD_LEARN || cmd == INF_CMD_READ_CODE
                  || cmd == INF_CMD_LEARN_CODE || cmd == INF_CMD_TRAINING
                  || cmd == INF_CMD_REPLY || cmd == INF_CMD_HF
-                 || cmd == INF_CMD_DB)
+                 || cmd == INF_CMD_DB || cmd == INF_CMD_CODE)
                 && arg != NULL && argsz > 0)
               {
                 /* No space in the line ("/task" alone): sp is NULL, the

@@ -1129,6 +1129,107 @@ cmd_reply (const char *arg)
       }
 }
 
+/* --- /code: produce a code snippet from the training data -------------- */
+
+void
+cmd_code (const char *arg)
+{
+    if (arg == NULL || *arg == '\0')
+      {
+        printf ("  usage: /code [langage] description — ex. /code c hello world\n");
+        return;
+      }
+    /* optional leading language token: /code c reverse a string */
+    static const char *langs[] = { "c", "c++", "cpp", "python", "py",
+        "shell", "sh", "bash", "rust", "go", "javascript", "js", "java",
+        "sql", "html", NULL };
+    char first[32] = "";
+    const char *rest = arg;
+    size_t fl = 0;
+    while (arg[fl] != '\0' && arg[fl] != ' ' && fl + 1 < sizeof first)
+      {
+        first[fl] = arg[fl];
+        fl++;
+      }
+    first[fl] = '\0';
+    const char *lang = NULL;
+    if (first[0] != '\0' && arg[fl] == ' ')
+      {
+        for (int i = 0; langs[i] != NULL; i++)
+          if (strcasecmp (first, langs[i]) == 0)
+            {
+              lang = langs[i];
+              rest = arg + fl;
+              while (*rest == ' ')
+                rest++;
+              break;
+            }
+      }
+    char query[2048];
+    snprintf (query, sizeof query, "%s%s%s", lang != NULL ? lang : "",
+              lang != NULL ? " " : "", rest);
+    static char cache[4 * 1024 * 1024];
+    if (db_source (cache, sizeof cache) <= 0)
+      {
+        printf ("  aucune donnée d'entraînement (/db illisible et cache %s vide)\n"
+                "  apprenez d'abord : /learn URL, /entrainement URL, /db sync\n",
+                g_training_cache != NULL ? g_training_cache : "?");
+        return;
+      }
+    char best[300000];
+    if (inf_training_search (cache, query, best, sizeof best) != 0)
+      {
+        printf ("  aucune donnée d'entraînement ne correspond à « %s »\n",
+                query);
+        return;
+      }
+    char url[2048] = "";
+    (void) inf_json_str_field (best, "source_url", url, sizeof url);
+    char output[8192] = "";
+    char content[262144] = "";
+    const char *reply = NULL;
+    if (inf_json_str_field (best, "output", output, sizeof output) == 0
+        && output[0] != '\0')
+        reply = output;
+    else if (inf_json_str_field (best, "content", content, sizeof content) == 0)
+        reply = content;
+    if (reply == NULL)
+      {
+        printf ("  enregistrement sans contenu exploitable\n");
+        return;
+      }
+    char text[262144];
+    snprintf (text, sizeof text, "%s", reply);
+    decode_training_text (text, sizeof text);
+    printf ("  code d'après les données d'entraînement (%s) pour « %s » :\n",
+            url[0] != '\0' ? url : "cache local", query);
+    static char block[262144];
+    if (inf_extract_code_block (text, lang, block, sizeof block) == 0)
+      {
+        const char *hl_lang = lang != NULL ? lang : inf_lang_detect (url, block);
+        static char hl[262144 * 4];
+        inf_code_highlight (hl, sizeof hl, block, hl_lang,
+                            inf_client_color ());
+        fputs (hl, stdout);
+        size_t bl = strlen (block);
+        if (bl > 0 && block[bl - 1] != '\n')
+            printf ("\n");
+        return;
+      }
+    /* no fenced block: show the decoded text, one indented line at a time */
+    const char *p = text;
+    printf ("  ");
+    while (*p != '\0')
+      {
+        if (*p == '\n')
+            printf ("\n  ");
+        else
+            putchar (*p);
+        p++;
+      }
+    printf ("\n");
+}
+
 /* --- /sigmoid: visualize the state of the mounted neurons ------------- */
 
 void

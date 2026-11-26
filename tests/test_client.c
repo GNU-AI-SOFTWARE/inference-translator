@@ -626,6 +626,24 @@ main (void)
     er = inf_json_strings_extract ("\\\"key\\\": \\\"value\\\"", e5, sizeof e5);
     check ("inf_json_strings_extract rejects still-escaped JSON", er == -1);
 
+    char c1[512];
+    int cr = inf_extract_code_block (
+        "intro\n```c\nint main(void){return 0;}\n```\noutro", "c", c1,
+        sizeof c1);
+    check ("inf_extract_code_block extracts the matching fence",
+           cr == 0 && strcmp (c1, "int main(void){return 0;}\n") == 0);
+    char c2[512];
+    cr = inf_extract_code_block (
+        "```python\nprint(1)\n```\n```c\nint x;\n```", "c", c2, sizeof c2);
+    check ("inf_extract_code_block skips other languages",
+           cr == 0 && strcmp (c2, "int x;\n") == 0);
+    char c3[512];
+    cr = inf_extract_code_block ("no fences here", NULL, c3, sizeof c3);
+    check ("inf_extract_code_block fails without fences", cr == -1);
+    cr = inf_extract_code_block ("```sh\necho hi\n```", "bash", c3, sizeof c3);
+    check ("inf_extract_code_block honors aliases",
+           cr == 0 && strcmp (c3, "echo hi\n") == 0);
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }

@@ -64,6 +64,7 @@ void cmd_sigmoid (void);
 void cmd_training (const char *arg);
 void cmd_hf (const char *arg);
 void cmd_db (const char *arg);
+void cmd_code (const char *arg);
 void db_store_and_report (const char *rec);
 
 /* Append one training record line to the local NDJSON cache used by

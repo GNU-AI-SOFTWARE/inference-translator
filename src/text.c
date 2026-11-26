@@ -188,6 +188,62 @@ inf_lang_detect (const char *url, const char *content)
     return "text";
 }
 
+/* /code: normalize a language alias for fence matching. */
+static const char *
+lang_alias (const char *lang)
+{
+    if (lang == NULL)
+        return NULL;
+    if (strcasecmp (lang, "cpp") == 0)
+        return "c++";
+    if (strcasecmp (lang, "py") == 0)
+        return "python";
+    if (strcasecmp (lang, "sh") == 0 || strcasecmp (lang, "bash") == 0)
+        return "shell";
+    if (strcasecmp (lang, "js") == 0)
+        return "javascript";
+    return lang;
+}
+
+int
+inf_extract_code_block (const char *text, const char *lang, char *out,
+                        size_t outsz)
+{
+    if (text == NULL || out == NULL || outsz == 0)
+        return -1;
+    const char *want = lang_alias (lang);
+    const char *p = text;
+    while ((p = strstr (p, "```")) != NULL)
+      {
+        const char *fence = p + 3;
+        const char *nl = strchr (fence, '\n');
+        char fence_lang[32];
+        size_t fl = nl != NULL ? (size_t) (nl - fence) : strlen (fence);
+        if (fl >= sizeof fence_lang)
+            fl = sizeof fence_lang - 1;
+        memcpy (fence_lang, fence, fl);
+        fence_lang[fl] = '\0';
+        while (fl > 0 && (fence_lang[fl - 1] == ' '
+                          || fence_lang[fl - 1] == '\r'))
+            fence_lang[--fl] = '\0';
+        const char *body = nl != NULL ? nl + 1 : fence + fl;
+        const char *close = strstr (body, "```");
+        if (close == NULL)
+            return -1; /* unterminated block */
+        if (want == NULL || strcasecmp (lang_alias (fence_lang), want) == 0)
+          {
+            size_t bl = (size_t) (close - body);
+            if (bl >= outsz)
+                bl = outsz - 1;
+            memcpy (out, body, bl);
+            out[bl] = '\0';
+            return 0;
+          }
+        p = close + 3;
+      }
+    return -1;
+}
+
 /* generic keyword set for c-like, python and shell */
 static const char *const code_keywords[] = {
     "if", "else", "for", "while", "do", "switch", "case", "default",

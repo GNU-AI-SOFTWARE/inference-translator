@@ -557,6 +557,9 @@ main (int argc, char **argv)
           case INF_CMD_DB:
             cmd_db (arg);
             break;
+          case INF_CMD_CODE:
+            cmd_code (arg);
+            break;
           case INF_CMD_UNKNOWN:
           default:
             printf ("  commande inconnue: %s\n", line);

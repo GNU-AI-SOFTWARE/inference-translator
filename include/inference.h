@@ -224,6 +224,7 @@ enum inf_client_cmd
     INF_CMD_TRAINING,
     INF_CMD_HF,
     INF_CMD_DB,
+    INF_CMD_CODE,
     INF_CMD_UNKNOWN
 };
 
@@ -314,6 +315,14 @@ const char *inf_lang_detect (const char *url, const char *content);
  * verbatim copy when false.  Bounded by outsz, NUL-terminated. */
 size_t inf_code_highlight (char *out, size_t outsz, const char *code,
                            const char *lang, bool color);
+
+/* /code: extract the body of a fenced code block (```lang ... ```) from
+ * TEXT, preferring a fence whose language matches LANG (NULL = first
+ * block wins; aliases cpp/c++, py/python, sh/bash/shell and
+ * js/javascript are accepted on both sides).  The fences are stripped.
+ * Returns 0 on success, -1 when no matching block is found. */
+int inf_extract_code_block (const char *text, const char *lang,
+                            char *out, size_t outsz);
 
 /* Phase 4 (/watch): minimal readers for the frozen orchestrator JSON
  * (types 2 and 3, flat objects as rendered by orchestrator-translator).
