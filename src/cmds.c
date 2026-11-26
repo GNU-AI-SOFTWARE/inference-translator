@@ -1135,6 +1135,55 @@ cmd_reply (const char *arg)
 
 /* --- /code: produce a code snippet from the training data -------------- */
 
+/* block_trivial: a fenced block that is only a placeholder ("# Your
+   code here", "...") is not an answer. */
+static int
+block_trivial (const char *block)
+{
+    size_t n = 0;
+    for (const char *p = block; *p != '\0'; p++)
+        if (*p != ' ' && *p != '\n' && *p != '\t' && *p != '\r')
+            n++;
+    return n < 10;
+}
+
+/* try_code_hit: does the NDJSON record LINE yield a usable fenced code
+   block for LANG (NULL = any language)?  Returns 1 and fills BLOCK and
+   URL on success.  Raw chunk first (keeps \n in code intact), then the
+   decoded text. */
+static int
+try_code_hit (const char *line, const char *lang, char *block,
+              size_t blocksz, char *url, size_t urlsz)
+{
+    if (line == NULL || block == NULL || blocksz == 0)
+        return 0;
+    if (url != NULL && urlsz > 0)
+      {
+        url[0] = '\0';
+        (void) inf_json_str_field (line, "source_url", url, urlsz);
+      }
+    char output[8192] = "";
+    char content[262144] = "";
+    const char *reply = NULL;
+    if (inf_json_str_field (line, "output", output, sizeof output) == 0
+        && output[0] != '\0')
+        reply = output;
+    else if (inf_json_str_field (line, "content", content, sizeof content) == 0)
+        reply = content;
+    if (reply == NULL)
+        return 0;
+    if (inf_extract_code_block (reply, lang, block, blocksz) == 0
+        && !block_trivial (block))
+        return 1;
+    char text[262144];
+    snprintf (text, sizeof text, "%s", reply);
+    decode_training_text (text, sizeof text);
+    if (inf_extract_code_block (text, lang, block, blocksz) == 0
+        && !block_trivial (block))
+        return 1;
+    return 0;
+}
+
 void
 cmd_code (const char *arg)
 {
@@ -1195,67 +1244,57 @@ cmd_code (const char *arg)
       }
     printf ("  code d'après les données d'entraînement pour « %s » :\n",
             query);
-    char firstline[300000] = "";
-    char *save = NULL;
-    for (char *line = strtok_r (hits, "\n", &save); line != NULL;
-         line = strtok_r (NULL, "\n", &save))
+    /* pass 1: fences matching LANG; pass 2: any fence */
+    static char block[262144];
+    for (int pass = 0; pass < 2; pass++)
       {
-        if (firstline[0] == '\0')
-            snprintf (firstline, sizeof firstline, "%s", line);
-        char url[2048] = "";
-        (void) inf_json_str_field (line, "source_url", url, sizeof url);
-        char output[8192] = "";
-        char content[262144] = "";
-        const char *reply = NULL;
-        if (inf_json_str_field (line, "output", output, sizeof output) == 0
-            && output[0] != '\0')
-            reply = output;
-        else if (inf_json_str_field (line, "content", content,
-                                     sizeof content) == 0)
-            reply = content;
-        if (reply == NULL)
-            continue;
-        static char block[262144];
-        /* 1) raw chunk may already carry fences: extract before any
-           unescaping, so a \n inside a code string literal survives */
-        if (inf_extract_code_block (reply, lang, block, sizeof block) == 0)
+        const char *want = (pass == 0 || lang == NULL) ? lang : NULL;
+        char *save = NULL;
+        for (char *line = strtok_r (hits, "\n", &save); line != NULL;
+             line = strtok_r (NULL, "\n", &save))
           {
-            printf ("  source : %s\n",
-                    url[0] != '\0' ? url : "cache local");
-            const char *hl_lang = lang != NULL ? lang
-                                               : inf_lang_detect (url, block);
-            static char hl[262144 * 4];
-            inf_code_highlight (hl, sizeof hl, block, hl_lang,
-                                inf_client_color ());
-            fputs (hl, stdout);
-            size_t bl = strlen (block);
-            if (bl > 0 && block[bl - 1] != '\n')
-                printf ("\n");
-            return;
+            char url[2048];
+            if (try_code_hit (line, want, block, sizeof block, url,
+                              sizeof url))
+              {
+                printf ("  source : %s\n",
+                        url[0] != '\0' ? url : "cache local");
+                const char *hl_lang = want != NULL ? want
+                                  : inf_lang_detect (url, block);
+                static char hl[262144 * 4];
+                inf_code_highlight (hl, sizeof hl, block, hl_lang,
+                                    inf_client_color ());
+                fputs (hl, stdout);
+                size_t bl = strlen (block);
+                if (bl > 0 && block[bl - 1] != '\n')
+                    printf ("\n");
+                return;
+              }
           }
-        /* 2) JSON-wrapped record: decode, then look for fences again */
-        char text[262144];
-        snprintf (text, sizeof text, "%s", reply);
-        decode_training_text (text, sizeof text);
-        if (inf_extract_code_block (text, lang, block, sizeof block) == 0)
+        /* strtok_r consumed hits: restore for pass 2 */
+        if (pass == 0)
           {
-            printf ("  source : %s\n",
-                    url[0] != '\0' ? url : "cache local");
-            const char *hl_lang = lang != NULL ? lang
-                                               : inf_lang_detect (url, block);
-            static char hl[262144 * 4];
-            inf_code_highlight (hl, sizeof hl, block, hl_lang,
-                                inf_client_color ());
-            fputs (hl, stdout);
-            size_t bl = strlen (block);
-            if (bl > 0 && block[bl - 1] != '\n')
-                printf ("\n");
-            return;
+            /* rebuild hits from the cache (strtok_r zeroed the separators) */
+            nhits = inf_training_search_list (cache, query, hits,
+                                             sizeof hits, 20);
+            if (nhits == 0 && lang != NULL)
+                nhits = inf_training_search_list (cache, rest, hits,
+                                                  sizeof hits, 20);
           }
       }
-    /* no fenced block in any hit: show the decoded best hit, indented */
+    /* no usable fenced block: show the decoded best hit, capped
+       (rebuild hits: strtok_r zeroed the separators) */
+    inf_training_search_list (cache, query, hits, sizeof hits, 20);
+    if (lang != NULL)
+        inf_training_search_list (cache, rest, hits, sizeof hits, 20);
+    char firstline[300000];
+    {
+        char *save = NULL;
+        char *line = strtok_r (hits, "\n", &save);
+        snprintf (firstline, sizeof firstline, "%s",
+                  line != NULL ? line : "");
+    }
     char url[2048] = "";
-    (void) inf_json_str_field (firstline, "source_url", url, sizeof url);
     char content[262144] = "";
     const char *reply = firstline;
     char output[8192] = "";
@@ -1268,11 +1307,15 @@ cmd_code (const char *arg)
     char text[262144];
     snprintf (text, sizeof text, "%s", reply);
     decode_training_text (text, sizeof text);
+    (void) inf_json_str_field (firstline, "source_url", url, sizeof url);
     printf ("  source : %s (aucun bloc de code, texte décodé) :\n",
             url[0] != '\0' ? url : "cache local");
+    size_t rl = strlen (text);
+    if (rl > 2000)
+        rl = 2000;
     const char *p = text;
     printf ("  ");
-    while (*p != '\0')
+    while (*p != '\0' && (size_t) (p - text) < rl)
       {
         if (*p == '\n')
             printf ("\n  ");
@@ -1280,7 +1323,7 @@ cmd_code (const char *arg)
             putchar (*p);
         p++;
       }
-    printf ("\n");
+    printf ("%s\n", rl < strlen (text) ? "…" : "");
 }
 
 /* --- /sigmoid: visualize the state of the mounted neurons ------------- */
