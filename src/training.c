@@ -158,6 +158,105 @@ training_score (const char *text, const char *query)
     return score;
 }
 
+/* --- IDF-weighted search: rare query words beat common ones ----------- */
+
+#define QWORDS_MAX 32
+
+/* collect the distinct query words (lowercased, len>=3) into WORDS */
+static size_t
+collect_query_words (const char *query, char words[][64], size_t maxw)
+{
+    size_t nw = 0;
+    const char *p = query;
+    while (*p != '\0' && nw < maxw)
+      {
+        while (*p != '\0' && !((*p >= 'a' && *p <= 'z')
+                               || (*p >= 'A' && *p <= 'Z')
+                               || (unsigned char) *p >= 0x80))
+            p++;
+        char word[64];
+        size_t wl = 0;
+        while (*p != '\0' && wl + 1 < sizeof word
+               && ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z')
+                   || (unsigned char) *p >= 0x80))
+            word[wl++] = (*p >= 'A' && *p <= 'Z') ? *p + 32 : *p, p++;
+        word[wl] = '\0';
+        if (wl < 3)
+            continue;
+        size_t i;
+        for (i = 0; i < nw; i++)
+            if (strcmp (words[i], word) == 0)
+                break;
+        if (i == nw)
+            memcpy (words[nw++], word, wl + 1);
+      }
+    return nw;
+}
+
+static char *
+lowercase_dup (const char *text)
+{
+    size_t tl = strlen (text);
+    char *low = malloc (tl + 1);
+    if (low == NULL)
+        return NULL;
+    for (size_t i = 0; i < tl; i++)
+        low[i] = (text[i] >= 'A' && text[i] <= 'Z') ? text[i] + 32 : text[i];
+    low[tl] = '\0';
+    return low;
+}
+
+/* pass 1: per-word document frequency over the NDJSON records */
+static size_t
+count_df (const char *ndjson, char words[][64], size_t nw, size_t *df)
+{
+    size_t nrec = 0;
+    const char *p = ndjson;
+    while (*p != '\0')
+      {
+        const char *eol = strchr (p, '\n');
+        size_t llen = eol != NULL ? (size_t) (eol - p) : strlen (p);
+        if (llen > 0 && llen < 300000)
+          {
+            char line[300000];
+            memcpy (line, p, llen);
+            line[llen] = '\0';
+            char content[262144];
+            if (inf_json_str_field (line, "content", content,
+                                    sizeof content) == 0)
+              {
+                nrec++;
+                char *low = lowercase_dup (content);
+                if (low != NULL)
+                  {
+                    for (size_t i = 0; i < nw; i++)
+                        if (strstr (low, words[i]) != NULL)
+                            df[i]++;
+                    free (low);
+                  }
+              }
+          }
+        p = eol != NULL ? eol + 1 : p + llen;
+      }
+    return nrec;
+}
+
+/* pass 2 score: sum of N/df over the query words present in TEXT */
+static double
+training_score_idf (const char *content, char words[][64], size_t nw,
+                    const size_t *df, size_t nrec)
+{
+    double score = 0;
+    char *low = lowercase_dup (content);
+    if (low == NULL)
+        return 0;
+    for (size_t i = 0; i < nw; i++)
+        if (df[i] > 0 && strstr (low, words[i]) != NULL)
+            score += nrec == 0 ? 1.0 : (double) nrec / (double) df[i];
+    free (low);
+    return score;
+}
+
 size_t
 inf_training_search (const char *ndjson, const char *query,
                      char *out, size_t outsz)
@@ -167,7 +266,13 @@ inf_training_search (const char *ndjson, const char *query,
     out[0] = '\0';
     if (ndjson == NULL || query == NULL || *query == '\0')
         return 0;
-    size_t best = 0;
+    char words[QWORDS_MAX][64];
+    size_t nw = collect_query_words (query, words, QWORDS_MAX);
+    if (nw == 0)
+        return 0;
+    size_t df[QWORDS_MAX] = { 0 };
+    size_t nrec = count_df (ndjson, words, nw, df);
+    double best = 0;
     char bestline[300000];
     bestline[0] = '\0';
     const char *p = ndjson;
@@ -184,10 +289,11 @@ inf_training_search (const char *ndjson, const char *query,
             if (inf_json_str_field (line, "content", content,
                                     sizeof content) == 0)
               {
-                size_t s = training_score (content, query);
-                if (s > best)
+                double sc = training_score_idf (content, words, nw, df,
+                                                nrec);
+                if (sc > best)
                   {
-                    best = s;
+                    best = sc;
                     memcpy (bestline, line, llen + 1);
                   }
               }
@@ -289,36 +395,79 @@ inf_training_search_list (const char *ndjson, const char *query,
     out[0] = '\0';
     if (ndjson == NULL || query == NULL || *query == '\0')
         return 0;
+    char words[QWORDS_MAX][64];
+    size_t nw = collect_query_words (query, words, QWORDS_MAX);
+    if (nw == 0)
+        return 0;
+    size_t df[QWORDS_MAX] = { 0 };
+    size_t nrec = count_df (ndjson, words, nw, df);
+    if (max_hits > 64)
+        max_hits = 64;
+    /* collect the hits with their IDF score, then sort best first */
+    double sc[64];
+    char *ln[64];
     size_t hits = 0;
-    size_t w = 0;
     const char *p = ndjson;
     while (*p != '\0' && hits < max_hits)
       {
         const char *eol = strchr (p, '\n');
         size_t llen = eol != NULL ? (size_t) (eol - p) : strlen (p);
-        if (llen > 0)
+        if (llen > 0 && llen < 300000)
           {
             char line[300000];
-            if (llen < sizeof line)
+            memcpy (line, p, llen);
+            line[llen] = '\0';
+            char content[262144];
+            if (inf_json_str_field (line, "content", content,
+                                    sizeof content) == 0)
               {
-                memcpy (line, p, llen);
-                line[llen] = '\0';
-                char content[262144];
-                if (inf_json_str_field (line, "content", content,
-                                        sizeof content) == 0
-                    && training_score (content, query) > 0)
+                double s = training_score_idf (content, words, nw, df,
+                                               nrec);
+                if (s > 0)
                   {
-                    if (w + llen + 2 >= outsz)
-                        break;
-                    memcpy (out + w, line, llen);
-                    w += llen;
-                    out[w++] = '\n';
-                    hits++;
+                    char *copy = malloc (llen + 1);
+                    if (copy != NULL)
+                      {
+                        memcpy (copy, line, llen + 1);
+                        sc[hits] = s;
+                        ln[hits] = copy;
+                        hits++;
+                      }
                   }
               }
           }
         p = eol != NULL ? eol + 1 : p + llen;
       }
+    /* insertion sort, best score first */
+    for (size_t i = 1; i < hits; i++)
+      {
+        double s = sc[i];
+        char *l = ln[i];
+        size_t j = i;
+        while (j > 0 && sc[j - 1] < s)
+          {
+            sc[j] = sc[j - 1];
+            ln[j] = ln[j - 1];
+            j--;
+          }
+        sc[j] = s;
+        ln[j] = l;
+      }
+    size_t w = 0;
+    size_t written = 0;
+    for (size_t i = 0; i < hits; i++)
+      {
+        size_t llen = strlen (ln[i]);
+        if (w + llen + 2 >= outsz)
+            break;
+        memcpy (out + w, ln[i], llen);
+        w += llen;
+        out[w++] = '\n';
+        written++;
+        free (ln[i]);
+      }
+    for (size_t i = written; i < hits; i++)
+        free (ln[i]);
     if (w >= outsz)
         w = outsz - 1;
     out[w] = '\0';

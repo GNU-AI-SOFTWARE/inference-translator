@@ -666,6 +666,24 @@ main (void)
     check ("pipeline: \\n inside code stays a 2-char escape",
            strstr (p_blk, "write(\"\\n\".join(out))") != NULL);
 
+    /* IDF: a record matching the rare words (hello world) must beat
+       records matching only the common word (python) */
+    const char *nd4 = "{\"source_url\":\"u-p1\",\"content\":\"use python to sort data\"}\n"
+                      "{\"source_url\":\"u-p2\",\"content\":\"python code for recipes\"}\n"
+                      "{\"source_url\":\"u-p3\",\"content\":\"python print examples\"}\n"
+                      "{\"source_url\":\"u-hw\",\"content\":\"python print hello world example\"}\n";
+    char b4[2048];
+    size_t n4 = inf_training_search (nd4, "python print hello world", b4,
+                                     sizeof b4);
+    check ("inf_training_search IDF prefers the rare-word record",
+           n4 > 0 && strstr (b4, "u-hw") != NULL);
+    char l4[4096];
+    size_t h4 = inf_training_search_list (nd4, "python print hello world",
+                                          l4, sizeof l4, 50);
+    check ("inf_training_search_list ranks the rare-word record first",
+           h4 == 4 && strstr (l4, "u-hw") != NULL
+           && strstr (l4, "u-hw") < strstr (l4, "u-p1"));
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }
