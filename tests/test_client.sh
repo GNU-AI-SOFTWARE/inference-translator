@@ -107,7 +107,7 @@ printf '/editor\n/submit\n/quit\n' \
     | pty "$BIN --mount $M" >"$D/out3" 2>&1
 sed 's/\x1b\[[0-9;]*m//g' "$D/out3" > "$D/out3.clean"
 grep -q 'buffer relu' "$D/out3.clean" || fail "/editor must re-read the buffer on exit 0"
-wait_file "$M/prompt" 'édité dans \$VISUAL' \
+wait_file "$M/prompt" 'édité dans $VISUAL' \
     || fail "/editor exit 0: submitted prompt must be the edited buffer, got '$(cat "$M/prompt" 2>/dev/null)'"
 
 export VISUAL="$D/fake-editor-ko.sh"
