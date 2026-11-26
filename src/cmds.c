@@ -1177,7 +1177,12 @@ cmd_code (const char *arg)
         return;
       }
     char best[300000];
-    if (inf_training_search (cache, query, best, sizeof best) != 0)
+    if (inf_training_search (cache, query, best, sizeof best) == 0
+        && lang != NULL)
+        /* retry without the language prefix: /code c hello world ->
+           "hello world" */
+        inf_training_search (cache, rest, best, sizeof best);
+    if (best[0] == '\0')
       {
         printf ("  aucune donnée d'entraînement ne correspond à « %s »\n",
                 query);
