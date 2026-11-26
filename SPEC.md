@@ -376,6 +376,14 @@ faux arbre).
     Note : les gros fichiers LFS redirigent vers le CDN
     (`cdn-lfs.hf.co`, `cas-bridge.xethub.hf.co`, `transfer.xethub.hf.co`) —
     épingler ces hôtes dans `/etc/hosts` si le DNS slirp est cassé.
+    Limite : httpfs sert le corps par fenêtres de 64 Ko
+    (`HTTPFS_BLOCK_SIZE`, httpfs-translator) — un gros fichier n'est
+    ingéré que sur sa première fenêtre (~64 Ko). Préférer donc de
+    **nombreux petits fichiers** (< 64 Ko), ou télécharger le fichier
+    complet depuis la VM (téléchargeur HTTP en ligne de commande),
+    le découper (`split -b 60000`) et le servir en local
+    (`python3 -m http.server 8000 --bind 127.0.0.1`) pour l'ingérer
+    par `/entrainement` morceau par morceau.
 - **DNS automatique** : à chaque URL ajoutée (`/fetch`, `/learn`,
   `/read-code`, `/learn-code`, `/entrainement`), si l'hôte n'est pas une IP
   littérale et absent de `/etc/hosts`, il est résolu (`getent hosts`) puis
