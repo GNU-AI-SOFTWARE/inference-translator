@@ -10,6 +10,7 @@
 
 #include "inference.h"
 
+#include <ctype.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <strings.h>
@@ -188,4 +189,120 @@ inf_json_unescape (char *s)
     }
   *w = '\0';
   return (size_t) (w - s);
+}
+
+/* inf_json_strings_extract: see include/inference.h.  One left-to-right
+   scan: a literal followed by ':' is an object key and the string after
+   the colon is kept as the value; a literal followed by ',', ']' or '}'
+   is a bare array element and kept as-is; anything else means the
+   fragment was cut mid-string, so the scan re-anchors on the quote it
+   just consumed.  Escape pairs are copied raw, so an unterminated
+   literal still yields its readable prefix. */
+int
+inf_json_strings_extract (const char *json, char *out, size_t outsz)
+{
+  if (json == NULL || out == NULL || outsz == 0)
+    return -1;
+  size_t w = 0;
+  int kept = 0;
+  const char *p = json;
+  while (*p != '\0' && w + 2 < outsz)
+    {
+      if (*p == '\\' && p[1] == '"')
+        {
+          p += 2; /* escaped quote: not a literal opener */
+          continue;
+        }
+      if (*p != '"')
+        {
+          p++;
+          continue;
+        }
+      const char *open = p;
+      p++;
+      char lit[8192];
+      size_t n = 0;
+      while (*p != '\0' && n + 2 < sizeof lit)
+        {
+          if (*p == '\\' && p[1] != '\0')
+            {
+              lit[n++] = *p++;
+              lit[n++] = *p++;
+              continue;
+            }
+          if (*p == '"')
+            break;
+          lit[n++] = *p++;
+        }
+      int closed = (*p == '"');
+      if (closed)
+        p++;
+      lit[n] = '\0';
+      const char *q = p;
+      while (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r')
+        q++;
+      if (*q == ':')
+        {
+          /* lit is an object key: keep the string value after the colon */
+          q++;
+          while (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r')
+            q++;
+          if (*q != '"')
+            continue; /* number, bool, null or nested structure */
+          p = q + 1;
+          n = 0;
+          while (*p != '\0' && n + 2 < sizeof lit)
+            {
+              if (*p == '\\' && p[1] != '\0')
+                {
+                  lit[n++] = *p++;
+                  lit[n++] = *p++;
+                  continue;
+                }
+              if (*p == '"')
+                {
+                  p++;
+                  break;
+                }
+              lit[n++] = *p++;
+            }
+          lit[n] = '\0';
+        }
+      else if (closed && *q != ',' && *q != ']' && *q != '}')
+        {
+          /* fragment cut mid-string: re-anchor so the consumed quote can
+             open the real literal */
+          p = open + 1;
+          continue;
+        }
+      inf_json_unescape (lit);
+      if (strstr (lit, "\\n") != NULL || strstr (lit, "\\\"") != NULL
+          || strstr (lit, "\\\\") != NULL || strstr (lit, "\\u") != NULL)
+        inf_json_unescape (lit); /* JSON-in-JSON: decode a second time */
+      char *s = lit;
+      while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r')
+        s++;
+      size_t l = strlen (s);
+      while (l > 0 && (s[l - 1] == ' ' || s[l - 1] == '\t' || s[l - 1] == '\n'
+                       || s[l - 1] == '\r'))
+        s[--l] = '\0';
+      int alnum = 0;
+      for (const char *c = s; *c != '\0'; c++)
+        if (isalnum ((unsigned char) *c))
+          {
+            alnum = 1;
+            break;
+          }
+      if (!alnum)
+        continue;
+      size_t sl = strlen (s);
+      if (w + sl + 1 >= outsz)
+        break;
+      memcpy (out + w, s, sl);
+      w += sl;
+      out[w++] = '\n';
+      kept++;
+    }
+  out[w] = '\0';
+  return kept > 0 ? 0 : -1;
 }

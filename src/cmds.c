@@ -941,6 +941,63 @@ static int collect_neurons (char llms[][32], int *nllm, unsigned *in_size);
    records come from /db first, the local cache as fallback. */
 static ssize_t db_source (char *buf, size_t bufsz);
 
+/* try_extract: when TEXT looks like JSON (object, array, or a fragment
+   with "key": boundaries), replace it with the extracted string
+   literals.  Returns 1 when TEXT was replaced. */
+static int
+try_extract (char *text, size_t textsz)
+{
+    if (text[0] != '{' && text[0] != '[' && strstr (text, "\":") == NULL)
+        return 0;
+    char ext[65536];
+    if (inf_json_strings_extract (text, ext, sizeof ext) == 0
+        && ext[0] != '\0')
+      {
+        snprintf (text, textsz, "%s", ext);
+        return 1;
+      }
+    return 0;
+}
+
+/* decode_training_text: presentation decoder for a stored training
+   chunk, shared by /reply and /db search.  Pulls the nested text field
+   out of a JSON record; when what remains is JSON (a raw .json source
+   chunk, possibly still escaped one level), extracts its string
+   literals instead of dumping the JSON structure; only then decodes
+   leftover escapes in plain text. */
+static void
+decode_training_text (char *text, size_t textsz)
+{
+    if (text == NULL || textsz == 0)
+        return;
+    if (text[0] == '{' || text[0] == '[' || text[0] == '"')
+      {
+        static const char *fields[] = { "value", "output", "text",
+                                        "content", "answer", NULL };
+        for (int i = 0; fields[i] != NULL; i++)
+          {
+            char sub[65536];
+            if (inf_json_str_field (text, fields[i], sub, sizeof sub) == 0
+                && sub[0] != '\0')
+              {
+                snprintf (text, textsz, "%s", sub);
+                break;
+              }
+          }
+      }
+    if (try_extract (text, textsz))
+        return;
+    if (strstr (text, "\\\"") != NULL || strstr (text, "\\\\") != NULL)
+      {
+        /* still-escaped chunk (JSON-in-JSON): decode one level, retry */
+        inf_json_unescape (text);
+        if (try_extract (text, textsz))
+            return;
+      }
+    if (strstr (text, "\\n") != NULL || strstr (text, "\\t") != NULL
+        || strstr (text, "\\u") != NULL)
+      inf_json_unescape (text);
+}
 void
 cmd_reply (const char *arg)
 {
@@ -1037,32 +1094,12 @@ cmd_reply (const char *arg)
             url[0] != '\0' ? url : "cache local");
     if (reply != NULL)
       {
-        /* Presentation: the stored content is often JSON-in-JSON (the
-           source chunk was escaped once when stored), so the text still
-           shows literal \n, \" ...  When the content is itself a JSON
-           record, show its text field; then decode the remaining escape
-           sequences; finally print indented, one line at a time. */
+        /* Presentation: decode_training_text handles JSON-in-JSON content
+           (text field of a record, or string literals of a raw JSON
+           fragment); then print indented, one line at a time. */
         char text[262144];
         snprintf (text, sizeof text, "%s", reply);
-        if (text[0] == '{' || text[0] == '[' || text[0] == '"')
-          {
-            static const char *fields[] = { "value", "output", "text",
-                                            "content", "answer", NULL };
-            for (int i = 0; fields[i] != NULL; i++)
-              {
-                char sub[65536];
-                if (inf_json_str_field (text, fields[i], sub, sizeof sub) == 0
-                    && sub[0] != '\0')
-                  {
-                    snprintf (text, sizeof text, "%s", sub);
-                    break;
-                  }
-              }
-          }
-        if (strstr (text, "\\n") != NULL || strstr (text, "\\t") != NULL
-            || strstr (text, "\\\"") != NULL || strstr (text, "\\\\") != NULL
-            || strstr (text, "\\u") != NULL)
-          inf_json_unescape (text);
+        decode_training_text (text, sizeof text);
         size_t rl = strlen (text);
         if (rl > 2000)
             rl = 2000;
@@ -1788,28 +1825,9 @@ db_search (const char *query)
         if (inf_json_str_field (line, "content", content, sizeof content)
             != 0)
             content[0] = '\0';
-        /* presentation: same JSON-in-JSON decoding as /reply — pull the
-           text field out of a nested record, unescape the rest, and
-           collapse newlines so the preview stays on one line */
-        if (content[0] == '{' || content[0] == '[' || content[0] == '"')
-          {
-            static const char *fields[] = { "value", "output", "text",
-                                            "content", "answer", NULL };
-            for (int i = 0; fields[i] != NULL; i++)
-              {
-                char sub[65536];
-                if (inf_json_str_field (content, fields[i], sub, sizeof sub) == 0
-                    && sub[0] != '\0')
-                  {
-                    snprintf (content, sizeof content, "%s", sub);
-                    break;
-                  }
-              }
-          }
-        if (strstr (content, "\\n") != NULL || strstr (content, "\\t") != NULL
-            || strstr (content, "\\\"") != NULL || strstr (content, "\\\\") != NULL
-            || strstr (content, "\\u") != NULL)
-          inf_json_unescape (content);
+        /* presentation: same decoding as /reply, then collapse newlines
+           so the preview stays on one line */
+        decode_training_text (content, sizeof content);
         for (char *p = content; *p != '\0'; p++)
           if (*p == '\n' || *p == '\r' || *p == '\t')
             *p = ' ';

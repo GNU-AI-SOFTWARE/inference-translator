@@ -329,6 +329,14 @@ int inf_json_num_field (const char *json, const char *key, double *out);
  * length.  For stored content that was escaped one level more than the
  * surrounding record (JSON-in-JSON). */
 size_t inf_json_unescape (char *s);
+/* inf_json_strings_extract: pull the string literals out of a (possibly
+ * partial) JSON fragment -- e.g. a mid-array chunk of a stored .json
+ * source file.  Object keys (a literal followed by ':') and literals
+ * without any letter or digit are skipped; each kept literal is
+ * unescaped (twice when it still carries JSON-in-JSON escapes) and the
+ * results are joined with newlines.  Returns 0 when at least one
+ * literal was kept, -1 otherwise. */
+int inf_json_strings_extract (const char *json, char *out, size_t outsz);
 
 /* Phase 4: does BUF carry the expected role of a /orchestrate node?
  * In phase 1 (trivfs) every sub-node name serves the same shared slot,

@@ -599,6 +599,33 @@ main (void)
     check ("inf_json_unescape renders \\uXXXX as UTF-8",
            strcmp (u3, "caf\xc3\xa9") == 0);
 
+    char e1[512];
+    int er = inf_json_strings_extract (
+        "\": \"Hello team\", \"Output\": \"Likely phishing.\", \"Score\": 0.92}",
+        e1, sizeof e1);
+    check ("inf_json_strings_extract pulls values, skips keys",
+           er == 0 && strstr (e1, "Hello team") != NULL
+           && strstr (e1, "Likely phishing.") != NULL
+           && strstr (e1, "Output") == NULL && strstr (e1, "0.92") == NULL);
+    char e2[512];
+    er = inf_json_strings_extract ("not json at all", e2, sizeof e2);
+    check ("inf_json_strings_extract rejects plain text", er == -1);
+    char e3[512];
+    er = inf_json_strings_extract (
+        "[{\"input\":\"a\\\\nb\"},{\"from\":\"human\",\"value\":\"salut \\\\u00e9\"}]",
+        e3, sizeof e3);
+    check ("inf_json_strings_extract unescapes literals, skips keys",
+           er == 0 && strstr (e3, "a\nb") != NULL
+           && strstr (e3, "salut \xc3\xa9") != NULL
+           && strstr (e3, "input") == NULL && strstr (e3, "from") == NULL);
+    char e4[512];
+    er = inf_json_strings_extract ("{\"k\":\"b\\\"c\"}", e4, sizeof e4);
+    check ("inf_json_strings_extract keeps escaped quote inside value",
+           er == 0 && strcmp (e4, "b\"c\n") == 0);
+    char e5[512];
+    er = inf_json_strings_extract ("\\\"key\\\": \\\"value\\\"", e5, sizeof e5);
+    check ("inf_json_strings_extract rejects still-escaped JSON", er == -1);
+
     printf ("%d/%d OK\n", g_checks - g_failed, g_checks);
     return g_failed == 0 ? 0 : 1;
 }
