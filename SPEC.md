@@ -354,6 +354,28 @@ faux arbre).
     `status` écrit `{"status": true}` sur `/db` et affiche la réponse ;
     `search`/`list`/`count` parcourent le cache local (miroir NDJSON de
     `training_data`, `inf_training_search_list`).
+  - `/code [langage] description` : premier bloc de code fenced (```)
+    non trivial parmi les 20 meilleurs résultats de la recherche
+    (`inf_training_search_list`, triée par score IDF) — d'abord sur le
+    texte brut du chunk, puis après décodage (`decode_training_text`) ;
+    coloration syntaxique + URL source affichées ; repli : texte décodé
+    du meilleur résultat, plafonné à 2000 caractères ;
+  - **Données Python depuis Hugging Face** : `/hf sync
+    hf://datasets/<owner>/<repo>[/prefix] <dossier-local>` télécharge
+    (endpoint `resolve`) puis convertit chaque fichier en enregistrements
+    `/db` `training_data`. Jeux conseillés pour la VM (non gated, taille
+    raisonnable) :
+    - `hf://datasets/ise-uiuc/Magicoder-OSS-Instruct-75K`
+      (`data-oss_instruct-decontaminated.jsonl`, ~203 Mo, problèmes/solutions
+      riches en Python) ;
+    - `hf://buckets/clairemariecoralie/DeepSeek-V4.1-Flash-Nemotron-Competitive-Coding-Distill-bucket`
+      (`data/train.jsonl`) ;
+    - éviter `bigcode/the-stack-smol` (gated) et le bucket `cyber-security`
+      (~95 Go). Ensuite : `/db search python`, `/code python …` (les mots
+      rares pèsent plus grâce au score IDF).
+    Note : les gros fichiers LFS redirigent vers le CDN
+    (`cdn-lfs.hf.co`, `cas-bridge.xethub.hf.co`, `transfer.xethub.hf.co`) —
+    épingler ces hôtes dans `/etc/hosts` si le DNS slirp est cassé.
 - **DNS automatique** : à chaque URL ajoutée (`/fetch`, `/learn`,
   `/read-code`, `/learn-code`, `/entrainement`), si l'hôte n'est pas une IP
   littérale et absent de `/etc/hosts`, il est résolu (`getent hosts`) puis
