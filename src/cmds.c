@@ -997,7 +997,11 @@ decode_training_text (char *text, size_t textsz)
     if (strstr (text, "\\n") != NULL || strstr (text, "\\t") != NULL
         || strstr (text, "\\u") != NULL)
       inf_json_unescape (text);
+    /* one JSON-escape level still present (double-stored chunk): drop it */
+    if (strstr (text, "\\\\") != NULL || strstr (text, "\\\"") != NULL)
+      inf_json_unescape (text);
 }
+
 void
 cmd_reply (const char *arg)
 {
@@ -1176,69 +1180,107 @@ cmd_code (const char *arg)
                 g_training_cache != NULL ? g_training_cache : "?");
         return;
       }
-    char best[300000];
-    if (inf_training_search (cache, query, best, sizeof best) == 0
-        && lang != NULL)
+    static char hits[512 * 1024];
+    size_t nhits = inf_training_search_list (cache, query, hits, sizeof hits,
+                                             20);
+    if (nhits == 0 && lang != NULL)
         /* retry without the language prefix: /code c hello world ->
            "hello world" */
-        inf_training_search (cache, rest, best, sizeof best);
-    if (best[0] == '\0')
+        nhits = inf_training_search_list (cache, rest, hits, sizeof hits, 20);
+    if (nhits == 0)
       {
         printf ("  aucune donnée d'entraînement ne correspond à « %s »\n",
                 query);
         return;
       }
-    char url[2048] = "";
-    (void) inf_json_str_field (best, "source_url", url, sizeof url);
-    char output[8192] = "";
-    char content[262144] = "";
-    const char *reply = NULL;
-    if (inf_json_str_field (best, "output", output, sizeof output) == 0
-        && output[0] != '\0')
-        reply = output;
-    else if (inf_json_str_field (best, "content", content, sizeof content) == 0)
-        reply = content;
-    if (reply == NULL)
+    printf ("  code d'après les données d'entraînement pour « %s » :\n",
+            query);
+    char firstline[300000] = "";
+    char *save = NULL;
+    for (char *line = strtok_r (hits, "\n", &save); line != NULL;
+         line = strtok_r (NULL, "\n", &save))
       {
-        printf ("  enregistrement sans contenu exploitable\n");
-        return;
-      }
-    printf ("  code d'après les données d'entraînement (%s) pour « %s » :\n",
-            url[0] != '\0' ? url : "cache local", query);
-    static char block[262144];
-    /* 1) a raw markdown chunk may already carry fences: extract before any
-       unescaping, so a \n inside a code string literal survives */
-    if (inf_extract_code_block (reply, lang, block, sizeof block) != 0)
-      {
+        if (firstline[0] == '\0')
+            snprintf (firstline, sizeof firstline, "%s", line);
+        char url[2048] = "";
+        (void) inf_json_str_field (line, "source_url", url, sizeof url);
+        char output[8192] = "";
+        char content[262144] = "";
+        const char *reply = NULL;
+        if (inf_json_str_field (line, "output", output, sizeof output) == 0
+            && output[0] != '\0')
+            reply = output;
+        else if (inf_json_str_field (line, "content", content,
+                                     sizeof content) == 0)
+            reply = content;
+        if (reply == NULL)
+            continue;
+        static char block[262144];
+        /* 1) raw chunk may already carry fences: extract before any
+           unescaping, so a \n inside a code string literal survives */
+        if (inf_extract_code_block (reply, lang, block, sizeof block) == 0)
+          {
+            printf ("  source : %s\n",
+                    url[0] != '\0' ? url : "cache local");
+            const char *hl_lang = lang != NULL ? lang
+                                               : inf_lang_detect (url, block);
+            static char hl[262144 * 4];
+            inf_code_highlight (hl, sizeof hl, block, hl_lang,
+                                inf_client_color ());
+            fputs (hl, stdout);
+            size_t bl = strlen (block);
+            if (bl > 0 && block[bl - 1] != '\n')
+                printf ("\n");
+            return;
+          }
         /* 2) JSON-wrapped record: decode, then look for fences again */
         char text[262144];
         snprintf (text, sizeof text, "%s", reply);
         decode_training_text (text, sizeof text);
-        if (inf_extract_code_block (text, lang, block, sizeof block) != 0)
+        if (inf_extract_code_block (text, lang, block, sizeof block) == 0)
           {
-            /* no fenced block: show the decoded text, one indented line
-               at a time */
-            const char *p = text;
-            printf ("  ");
-            while (*p != '\0')
-              {
-                if (*p == '\n')
-                    printf ("\n  ");
-                else
-                    putchar (*p);
-                p++;
-              }
-            printf ("\n");
+            printf ("  source : %s\n",
+                    url[0] != '\0' ? url : "cache local");
+            const char *hl_lang = lang != NULL ? lang
+                                               : inf_lang_detect (url, block);
+            static char hl[262144 * 4];
+            inf_code_highlight (hl, sizeof hl, block, hl_lang,
+                                inf_client_color ());
+            fputs (hl, stdout);
+            size_t bl = strlen (block);
+            if (bl > 0 && block[bl - 1] != '\n')
+                printf ("\n");
             return;
           }
       }
-    const char *hl_lang = lang != NULL ? lang : inf_lang_detect (url, block);
-    static char hl[262144 * 4];
-    inf_code_highlight (hl, sizeof hl, block, hl_lang, inf_client_color ());
-    fputs (hl, stdout);
-    size_t bl = strlen (block);
-    if (bl > 0 && block[bl - 1] != '\n')
-        printf ("\n");
+    /* no fenced block in any hit: show the decoded best hit, indented */
+    char url[2048] = "";
+    (void) inf_json_str_field (firstline, "source_url", url, sizeof url);
+    char content[262144] = "";
+    const char *reply = firstline;
+    char output[8192] = "";
+    if (inf_json_str_field (firstline, "output", output, sizeof output) == 0
+        && output[0] != '\0')
+        reply = output;
+    else if (inf_json_str_field (firstline, "content", content,
+                                 sizeof content) == 0)
+        reply = content;
+    char text[262144];
+    snprintf (text, sizeof text, "%s", reply);
+    decode_training_text (text, sizeof text);
+    printf ("  source : %s (aucun bloc de code, texte décodé) :\n",
+            url[0] != '\0' ? url : "cache local");
+    const char *p = text;
+    printf ("  ");
+    while (*p != '\0')
+      {
+        if (*p == '\n')
+            printf ("\n  ");
+        else
+            putchar (*p);
+        p++;
+      }
+    printf ("\n");
 }
 
 /* --- /sigmoid: visualize the state of the mounted neurons ------------- */
