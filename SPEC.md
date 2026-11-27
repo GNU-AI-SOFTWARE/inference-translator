@@ -384,6 +384,11 @@ faux arbre).
     le découper (`split -b 60000`) et le servir en local
     (`python3 -m http.server 8000 --bind 127.0.0.1`) pour l'ingérer
     par `/entrainement` morceau par morceau.
+    Le client accepte `--batch [FILE|-]` : sans TTY, il lit des commandes
+    ligne par ligne (fichier, ou stdin avec `-`) et les exécute — pour
+    ingérer en masse : `for f in /root/www/py/py-*; do echo "/entrainement
+    http://127.0.0.1:8000/py/$(basename $f)"; done > /tmp/cmds.txt` puis
+    `./src/inference --mount /inference --batch /tmp/cmds.txt`.
 - **DNS automatique** : à chaque URL ajoutée (`/fetch`, `/learn`,
   `/read-code`, `/learn-code`, `/entrainement`), si l'hôte n'est pas une IP
   littérale et absent de `/etc/hosts`, il est résolu (`getent hosts`) puis
