@@ -288,7 +288,8 @@ static void
 usage (FILE *out)
 {
     fprintf (out,
-             "Usage: inference [--mount DIR] [--db DIR] [--orchestrate DIR] [--history FILE] [--version] [--help]\n"
+             "Usage: inference [--mount DIR] [--db DIR] [--orchestrate DIR] [--history FILE] [--batch [FILE|-]] [--version] [--help]\n"
+             "--batch : mode non interactif (pas de TTY requis) — lit des commandes ligne par ligne dans FILE (ou stdin avec -).\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
              "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /watch /history /uptime /reply [question] /sigmoid /entrainement URL|hf://... [DIR] /hf sync hf://... DIR /db status|search|list|count /status /stats /help /quit.\n"
              "Base de données: /db par défaut (--db DIR ou $INFERENCE_DB).\n"
@@ -297,6 +298,99 @@ usage (FILE *out)
              "Historique: $HOME/.history par défaut (--history FILE ou $INFERENCE_HISTORY),\n    flèche haut/bas pour rappeler une ligne.\n"
              "Édition: DEL efface, Tab complète, '\\' échappe un '/' initial.\n");
 }
+
+static bool g_quit;
+
+/* handle_line: one input line -> dispatch (shared by the REPL and
+   --batch mode). */
+static void
+handle_line (const char *line, size_t llen, bool escaped)
+{
+        char arg[256] = "";
+        enum inf_client_cmd cmd = escaped ? INF_CMD_NONE
+            : inf_client_parse_command (line, arg, sizeof arg);
+        if (cmd == INF_CMD_NONE)
+          {
+            /* plain text: append to the prompt buffer, multi-line */
+            if (g_blen + llen + 1 < INF_PROMPT_MAX)
+              {
+                memcpy (g_buf + g_blen, line, llen);
+                g_blen += llen;
+                g_buf[g_blen++] = '\n';
+                g_buf[g_blen] = '\0';
+              }
+            return;
+          }
+        switch (cmd)
+          {
+          case INF_CMD_QUIT:
+            g_quit = true;
+            break;
+          case INF_CMD_STATUS:
+            cmd_status ();
+            break;
+          case INF_CMD_FETCH:
+            cmd_fetch (arg);
+            break;
+          case INF_CMD_STATS:
+            cmd_stats ();
+            break;
+          case INF_CMD_HELP:
+            cmd_help ();
+            break;
+          case INF_CMD_TASK:
+            cmd_task (arg);
+            break;
+          case INF_CMD_SUBMIT:
+            cmd_submit ();
+            break;
+          case INF_CMD_EDITOR:
+            cmd_editor ();
+            break;
+          case INF_CMD_LEARN:
+            cmd_learn (arg);
+            break;
+          case INF_CMD_READ_CODE:
+            cmd_read_code (arg);
+            break;
+          case INF_CMD_LEARN_CODE:
+            cmd_learn_code (arg);
+            break;
+          case INF_CMD_WATCH:
+            cmd_watch ();
+            break;
+          case INF_CMD_HISTORY:
+            cmd_history ();
+            break;
+          case INF_CMD_UPTIME:
+            cmd_uptime ();
+            break;
+          case INF_CMD_REPLY:
+            cmd_reply (arg);
+            break;
+          case INF_CMD_SIGMOID:
+            cmd_sigmoid ();
+            break;
+          case INF_CMD_TRAINING:
+            cmd_training (arg);
+            break;
+          case INF_CMD_HF:
+            cmd_hf (arg);
+            break;
+          case INF_CMD_DB:
+            cmd_db (arg);
+            break;
+          case INF_CMD_CODE:
+            cmd_code (arg);
+            break;
+          case INF_CMD_UNKNOWN:
+          default:
+            printf ("  commande inconnue: %s\n", line);
+            break;
+          }
+}
+
+static const char *g_batch = NULL;
 
 int
 main (int argc, char **argv)
@@ -376,6 +470,14 @@ main (int argc, char **argv)
               }
             snprintf (g_hist_path, sizeof g_hist_path, "%s", argv[i]);
           }
+        else if (strcmp (argv[i], "--batch") == 0)
+          {
+            /* optional value: --batch FILE, or --batch (stdin) */
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+                g_batch = argv[++i];
+            else
+                g_batch = "-";
+          }
         else if (strcmp (argv[i], "--version") == 0)
           {
             printf ("inference (GNU AI) %s\n", VERSION);
@@ -392,6 +494,43 @@ main (int argc, char **argv)
             usage (stderr);
             return 2;
           }
+      }
+
+    /* --batch: no TTY needed; read command lines from FILE ("-" = stdin)
+       and dispatch them, for scripted ingestion (/entrainement lists). */
+    if (g_batch != NULL)
+      {
+        FILE *in = stdin;
+        if (strcmp (g_batch, "-") != 0)
+          {
+            in = fopen (g_batch, "r");
+            if (in == NULL)
+              {
+                fprintf (stderr, "inference: impossible d'ouvrir %s\n", g_batch);
+                perror ("");
+                return 2;
+              }
+          }
+        char banner[256];
+        inf_client_banner (banner, sizeof banner, VERSION);
+        fputs (banner, stdout);
+        cmd_status ();
+        char line[INF_PROMPT_MAX];
+        while (fgets (line, sizeof line, in) != NULL)
+          {
+            size_t llen = strlen (line);
+            while (llen > 0 && (line[llen - 1] == '\n' || line[llen - 1] == '\r'))
+                line[--llen] = '\0';
+            if (llen == 0)
+                continue;
+            handle_line (line, llen, false);
+            fflush (stdout);
+            if (g_quit)
+                break;
+          }
+        if (in != stdin)
+            fclose (in);
+        return 0;
       }
 
     /* SPEC.md section 6: the interactive mode refuses to start
@@ -483,87 +622,11 @@ main (int argc, char **argv)
             g_hpos = g_hist.count;
           }
 
-        char arg[256] = "";
-        enum inf_client_cmd cmd = escaped ? INF_CMD_NONE
-            : inf_client_parse_command (line, arg, sizeof arg);
-        if (cmd == INF_CMD_NONE)
+        handle_line (line, llen, escaped);
+        if (g_quit)
           {
-            /* plain text: append to the prompt buffer, multi-line */
-            if (g_blen + llen + 1 < INF_PROMPT_MAX)
-              {
-                memcpy (g_buf + g_blen, line, llen);
-                g_blen += llen;
-                g_buf[g_blen++] = '\n';
-                g_buf[g_blen] = '\0';
-              }
-            continue;
-          }
-        switch (cmd)
-          {
-          case INF_CMD_QUIT:
             restore_tio ();
             return 0;
-          case INF_CMD_STATUS:
-            cmd_status ();
-            break;
-          case INF_CMD_FETCH:
-            cmd_fetch (arg);
-            break;
-          case INF_CMD_STATS:
-            cmd_stats ();
-            break;
-          case INF_CMD_HELP:
-            cmd_help ();
-            break;
-          case INF_CMD_TASK:
-            cmd_task (arg);
-            break;
-          case INF_CMD_SUBMIT:
-            cmd_submit ();
-            break;
-          case INF_CMD_EDITOR:
-            cmd_editor ();
-            break;
-          case INF_CMD_LEARN:
-            cmd_learn (arg);
-            break;
-          case INF_CMD_READ_CODE:
-            cmd_read_code (arg);
-            break;
-          case INF_CMD_LEARN_CODE:
-            cmd_learn_code (arg);
-            break;
-          case INF_CMD_WATCH:
-            cmd_watch ();
-            break;
-          case INF_CMD_HISTORY:
-            cmd_history ();
-            break;
-          case INF_CMD_UPTIME:
-            cmd_uptime ();
-            break;
-          case INF_CMD_REPLY:
-            cmd_reply (arg);
-            break;
-          case INF_CMD_SIGMOID:
-            cmd_sigmoid ();
-            break;
-          case INF_CMD_TRAINING:
-            cmd_training (arg);
-            break;
-          case INF_CMD_HF:
-            cmd_hf (arg);
-            break;
-          case INF_CMD_DB:
-            cmd_db (arg);
-            break;
-          case INF_CMD_CODE:
-            cmd_code (arg);
-            break;
-          case INF_CMD_UNKNOWN:
-          default:
-            printf ("  commande inconnue: %s\n", line);
-            break;
           }
       }
 
