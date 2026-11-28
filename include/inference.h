@@ -225,6 +225,8 @@ enum inf_client_cmd
     INF_CMD_HF,
     INF_CMD_DB,
     INF_CMD_CODE,
+    INF_CMD_GOOD,
+    INF_CMD_BAD,
     INF_CMD_UNKNOWN
 };
 

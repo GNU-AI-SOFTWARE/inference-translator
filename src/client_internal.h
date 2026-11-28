@@ -60,6 +60,7 @@ void cmd_editor (void);
 void cmd_read_code (const char *arg);
 void cmd_learn_code (const char *arg);
 void cmd_reply (const char *arg);
+void cmd_feedback (const char *rating);
 void cmd_sigmoid (void);
 void cmd_training (const char *arg);
 void cmd_hf (const char *arg);

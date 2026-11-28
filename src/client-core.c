@@ -110,6 +110,10 @@ inf_client_parse_command (const char *line, char *arg, size_t argsz)
                 cmd = INF_CMD_DB;
             else if (strcmp (inf_actions[i].command, "/code") == 0)
                 cmd = INF_CMD_CODE;
+            else if (strcmp (inf_actions[i].command, "/good") == 0)
+                cmd = INF_CMD_GOOD;
+            else if (strcmp (inf_actions[i].command, "/bad") == 0)
+                cmd = INF_CMD_BAD;
             else
                 cmd = INF_CMD_QUIT;
 

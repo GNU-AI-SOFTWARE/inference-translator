@@ -28,6 +28,8 @@ const struct inf_action inf_actions[] =
     { "/history", "lister l'historique de la session (flèche haut/bas pour rappeler)" },
     { "/watch", "surveiller /orchestrate : status (instances) puis résultat agrégé en streaming" },
     { "/reply", "répondre depuis les données d'entraînement via le neurone /llm1..N si monté, sinon le cache" },
+    { "/good", "noter « good » la dernière réponse de /reply dans /db (table feedback, phase B4)" },
+    { "/bad", "noter « bad » la dernière réponse de /reply dans /db (table feedback, phase B4)" },
     { "/sigmoid", "visualiser l'état des neurones montés (/llmN) après sigmoïde" },
     { "/entrainement", "remplir /db avec les données d'une URL ou hf://…, passées par le neuron-translator" },
     { "/hf", "hf://buckets/... : lister (list) ou synchroniser (sync) un bucket/dataset HF vers un dossier local, puis ingérer dans /db" },

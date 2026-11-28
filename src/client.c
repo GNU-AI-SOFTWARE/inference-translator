@@ -291,7 +291,7 @@ usage (FILE *out)
              "Usage: inference [--mount DIR] [--db DIR] [--orchestrate DIR] [--history FILE] [--batch [FILE|-]] [--version] [--help]\n"
              "--batch : mode non interactif (pas de TTY requis) — lit des commandes ligne par ligne dans FILE (ou stdin avec -).\n"
              "Client interactif de /inference (par défaut, ou $INFERENCE_MOUNT).\n"
-             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /watch /history /uptime /reply [question] /sigmoid /entrainement URL|hf://... [DIR] /hf sync hf://... DIR /db status|search|list|count /status /stats /help /quit.\n"
+             "Commandes: /editor /task TÂCHE /submit /fetch URL /learn [URL...] /read-code URL /learn-code URL /watch /history /uptime /reply [question] /good /bad /sigmoid /entrainement URL|hf://... [DIR] /entrainement --from FILE|--from-feedback /hf sync hf://... DIR /db status|search|list|count /status /stats /help /quit.\n"
              "Base de données: /db par défaut (--db DIR ou $INFERENCE_DB).\n"
              "Orchestrateur: /orchestrate par défaut (--orchestrate DIR ou $INFERENCE_ORCH).\n"
              "Cache d'entraînement (pour /reply): $INFERENCE_TRAINING ou $HOME/.inference-training.ndjson.\n"
@@ -382,6 +382,12 @@ handle_line (const char *line, size_t llen, bool escaped)
             break;
           case INF_CMD_CODE:
             cmd_code (arg);
+            break;
+          case INF_CMD_GOOD:
+            cmd_feedback ("good");
+            break;
+          case INF_CMD_BAD:
+            cmd_feedback ("bad");
             break;
           case INF_CMD_UNKNOWN:
           default:

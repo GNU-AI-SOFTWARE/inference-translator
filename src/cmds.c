@@ -942,6 +942,8 @@ static int collect_neurons (char llms[][32], int *nllm, unsigned *in_size);
 /* defined with the /db commands below; used by /reply so the training
    records come from /db first, the local cache as fallback. */
 static ssize_t db_source (char *buf, size_t bufsz);
+/* defined with /entrainement below; used by /good /bad (phase B4). */
+static int db_store_rec (const char *rec);
 
 /* try_extract: when TEXT looks like JSON (object, array, or a fragment
    with "key": boundaries), replace it with the extracted string
@@ -1002,6 +1004,24 @@ decode_training_text (char *text, size_t textsz)
     /* one JSON-escape level still present (double-stored chunk): drop it */
     if (strstr (text, "\\\\") != NULL || strstr (text, "\\\"") != NULL)
       inf_json_unescape (text);
+}
+
+/* Phase B4: the last /reply exchange, rated by /good and /bad and
+   re-ingested by /entrainement --from-feedback. */
+static char g_last_prompt[8192];
+static char g_last_response[262144 + 16];
+static char g_last_source[2048];
+
+static void
+note_last_reply (const char *prompt, const char *response,
+                 const char *source)
+{
+    snprintf (g_last_prompt, sizeof g_last_prompt, "%s",
+              prompt != NULL ? prompt : "");
+    snprintf (g_last_response, sizeof g_last_response, "%s",
+              response != NULL ? response : "");
+    snprintf (g_last_source, sizeof g_last_source, "%s",
+              source != NULL ? source : "");
 }
 
 void
@@ -1089,6 +1109,7 @@ cmd_reply (const char *arg)
                                                 vals, nv) > 0)
                             printf ("  réponse du LLM (texte décodé) : %s\n",
                                     decoded);
+                        note_last_reply (query, out_text, url);
                         return;
                       }
                   }
@@ -1106,6 +1127,7 @@ cmd_reply (const char *arg)
         char text[262144];
         snprintf (text, sizeof text, "%s", reply);
         decode_training_text (text, sizeof text);
+        note_last_reply (query, text, url);
         size_t rl = strlen (text);
         if (rl > 2000)
             rl = 2000;
@@ -1133,6 +1155,62 @@ cmd_reply (const char *arg)
             printf ("%s\n", rl < strlen (text) ? "…" : "");
           }
       }
+}
+
+/* --- /good /bad: rate the last /reply (phase B4) ----------------------- */
+
+/* json_escape_into — minimal JSON string escaper (quotes, backslash,
+   control chars); returns the length written. */
+static size_t
+json_escape_into (char *dst, size_t cap, const char *src)
+{
+    size_t n = 0;
+
+    for (const char *p = src; *p != '\0' && n + 7 < cap; p++)
+      {
+        if (*p == '"' || *p == '\\')
+          {
+            dst[n++] = '\\';
+            dst[n++] = *p;
+          }
+        else if ((unsigned char) *p < 0x20)
+          n += (size_t) snprintf (dst + n, cap - n, "\\u%04x",
+                                  (unsigned) *p);
+        else
+          dst[n++] = *p;
+      }
+    dst[n] = '\0';
+    return n;
+}
+
+void
+cmd_feedback (const char *rating)
+{
+    if (g_last_prompt[0] == '\0' && g_last_response[0] == '\0')
+      {
+        printf ("  rien à noter : faites d'abord /reply [question]\n");
+        return;
+      }
+    char ep[16384], er[280 * 1024], es[4096];
+    json_escape_into (ep, sizeof ep, g_last_prompt);
+    json_escape_into (er, sizeof er, g_last_response);
+    json_escape_into (es, sizeof es, g_last_source);
+    char rec[320 * 1024];
+
+    snprintf (rec, sizeof rec,
+              "{\"table\": \"feedback\", \"row\": {\"prompt\": \"%s\", "
+              "\"response\": \"%s\", \"rating\": \"%s\", \"source_url\": "
+              "\"%s\"}}",
+              ep, er, rating, es);
+    /* db_store_rec is defined with /entrainement below; forward-
+       declared next to db_source. */
+    int st = db_store_rec (rec);
+    if (st < 0)
+        printf ("  ⚠ /db illisible : le feedback « %s » n'a pas été "
+                "persisté\n", rating);
+    else
+        printf ("  feedback « %s » enregistré dans /db (table feedback, "
+                "id=%s)\n", rating, st == 0 ? "doublon" : "ok");
 }
 
 /* --- /code: produce a code snippet from the training data -------------- */
@@ -1865,6 +1943,223 @@ training_from_file (const char *path, bool resume)
             "erreurs=%ld\n", path, traites, sautes, doublons, erreurs);
 }
 
+/* --- /entrainement --from-feedback (phase B4) ---------------------------
+ *
+ * Re-ingests the positively rated /reply exchanges (feedback rows
+ * with rating "good") into training_data — idempotent through the
+ * SHA-256 checksum — then saves the current neuron model and versions
+ * it in the models table of /db. */
+
+/* next_json_object — from P (pointing at '{' or later), copy the next
+   balanced JSON object into OBJ; returns the position after it, or
+   NULL when no object remains.  Quoted strings are skipped with their
+   escapes so braces inside strings do not count. */
+static const char *
+next_json_object (const char *p, char *obj, size_t objsz)
+{
+    while (*p == ' ' || *p == ',' || *p == '\n' || *p == '\r'
+           || *p == '\t')
+        p++;
+    if (*p != '{')
+        return NULL;
+    size_t n = 0;
+    int depth = 0;
+    bool instr = false, esc = false;
+
+    for (; *p != '\0'; p++)
+      {
+        char c = *p;
+        if (n + 1 < objsz)
+            obj[n++] = c;
+        if (esc)
+          esc = false;
+        else if (instr && c == '\\')
+          esc = true;
+        else if (c == '"')
+          instr = !instr;
+        else if (!instr && c == '{')
+          depth++;
+        else if (!instr && c == '}')
+          {
+            depth--;
+            if (depth == 0)
+              {
+                obj[n] = '\0';
+                return p + 1;
+              }
+          }
+      }
+    return NULL;
+}
+
+/* read_whole_file — slurp PATH into a static-ish caller buffer. */
+static ssize_t
+read_whole_file (const char *path, char *buf, size_t bufsz)
+{
+    int fd = open (path, O_RDONLY);
+
+    if (fd < 0)
+        return -1;
+    ssize_t n = read (fd, buf, bufsz - 1);
+    close (fd);
+    if (n < 0)
+        return -1;
+    buf[n] = '\0';
+    return n;
+}
+
+static void
+training_from_feedback (void)
+{
+    static char resp[300000];
+    const char *req =
+      "{\"select\": \"feedback\", \"where\": {\"rating\": \"good\"}, "
+      "\"limit\": 4096}";
+
+    if (write_root_line (g_db, req, strlen (req)) != 0
+        || read_root (g_db, resp, sizeof resp) < 0)
+      {
+        printf ("  /db illisible : aucun feedback relu\n");
+        return;
+      }
+    const char *rows = strstr (resp, "\"rows\": [");
+    if (rows == NULL)
+        rows = strstr (resp, "\"rows\":[");
+    if (rows == NULL)
+      {
+        printf ("  réponse /db inattendue : %.80s\n", resp);
+        return;
+      }
+    rows = strchr (rows + 6, '[');
+    if (rows == NULL)
+        return;
+
+    long traites = 0, doublons = 0, erreurs = 0;
+    const char *p = rows + 1;
+    char obj[160 * 1024];
+
+    printf ("  --from-feedback : ré-ingestion des réponses notées « good »\n");
+    while ((p = next_json_object (p, obj, sizeof obj)) != NULL)
+      {
+        char prompt[8192] = "", response[65536] = "", src[2048] = "";
+        double id = 0;
+
+        (void) inf_json_str_field (obj, "prompt", prompt, sizeof prompt);
+        (void) inf_json_str_field (obj, "response", response,
+                                   sizeof response);
+        (void) inf_json_str_field (obj, "source_url", src, sizeof src);
+        (void) inf_json_num_field (obj, "id", &id);
+        if (prompt[0] == '\0' && response[0] == '\0')
+          continue;
+
+        char content[80 * 1024];
+        snprintf (content, sizeof content, "%s\n%s", prompt, response);
+        char url[2048];
+        snprintf (url, sizeof url, "feedback://%lld", (long long) id);
+        char sum[65];
+        inf_sha256_hex (sum, (const unsigned char *) content,
+                        strlen (content));
+        char rec[200 * 1024];
+        inf_training_record (rec, sizeof rec, url, 0, content, sum);
+        int st = db_store_rec (rec);
+
+        if (st < 0)
+          {
+            erreurs++;
+            continue;
+          }
+        training_cache_append (rec);
+        if (st == 0)
+          doublons++;
+        else
+          {
+            traites++;
+            printf ("  [+] feedback #%lld ré-ingéré (%s)\n",
+                    (long long) id, src[0] != '\0' ? src : url);
+          }
+      }
+    db_log_ingest ("feedback://good",
+                   erreurs > 0 ? "error" : "ok", traites + doublons);
+    printf ("  bilan --from-feedback : traités=%ld doublons=%ld "
+            "erreurs=%ld\n", traites, doublons, erreurs);
+
+    /* Version the current neuron model in /db (table models). */
+    char llms[16][32];
+    int nllm = 0;
+    unsigned in_size = 0;
+
+    if (collect_neurons (llms, &nllm, &in_size) != 0 || nllm < 1)
+      {
+        printf ("  aucun neurone monté : modèle non versionné\n");
+        return;
+      }
+    const char *llm = llms[0];
+    const char *mpath = "/root/.gnuai-model.nn";
+    char savecmd[256];
+
+    snprintf (savecmd, sizeof savecmd, "save %s\n", mpath);
+    if (write_root (llm, savecmd, strlen (savecmd)) != 0)
+      {
+        printf ("  %s ne répond pas : modèle non versionné\n", llm);
+        return;
+      }
+    static char payload[200 * 1024];
+    ssize_t plen = read_whole_file (mpath, payload, sizeof payload);
+    if (plen <= 0)
+      {
+        printf ("  %s n'a pas écrit %s : modèle non versionné\n",
+                llm, mpath);
+        return;
+      }
+    /* the .nn format is binary: store it hex-encoded so the TEXT
+       payload survives the JSON round-trip unchanged */
+    static char hex[400 * 1024];
+    for (ssize_t i = 0; i < plen; i++)
+        snprintf (hex + 2 * i, 3, "%02x",
+                  (unsigned char) payload[i]);
+    hex[2 * plen] = '\0';
+    /* current version of the model name */
+    static char mresp[300000];
+    const char *mreq =
+      "{\"select\": \"models\", \"where\": {\"name\": "
+      "\"sigmoid-default\"}, \"limit\": 4096}";
+    long version = 1;
+
+    if (write_root_line (g_db, mreq, strlen (mreq)) == 0
+        && read_root (g_db, mresp, sizeof mresp) >= 0)
+      {
+        const char *mrows = strstr (mresp, "\"rows\":");
+        if (mrows != NULL)
+          {
+            mrows = strchr (mrows + 6, '[');
+            if (mrows != NULL)
+              {
+                const char *q = mrows + 1;
+                char mobj[4096];
+                while ((q = next_json_object (q, mobj, sizeof mobj))
+                       != NULL)
+                  {
+                    double v = 0;
+                    if (inf_json_num_field (mobj, "version", &v) == 0
+                        && (long) v >= version)
+                        version = (long) v + 1;
+                  }
+              }
+          }
+      }
+    char mrec[440 * 1024];
+
+    snprintf (mrec, sizeof mrec,
+              "{\"table\": \"models\", \"row\": {\"name\": "
+              "\"sigmoid-default\", \"version\": %ld, \"payload\": \"%s\"}}",
+              version, hex);
+    if (db_store_rec (mrec) >= 0)
+        printf ("  modèle %s versionné dans /db (models v%ld,neurone %s)\n",
+                "sigmoid-default", version, llm);
+    else
+        printf ("  ⚠ le modèle n'a pas pu être versionné dans /db\n");
+}
+
 void cmd_training_impl (const char *arg);
 void
 cmd_training (const char *arg)
@@ -1894,6 +2189,13 @@ cmd_training_impl (const char *arg)
 
         while (*p == ' ' || *p == '\t')
           p++;
+        /* Phase B4: /entrainement --from-feedback (or --from feedback) */
+        if (strncmp (p, "-feedback", 9) == 0
+            || strncmp (p, "feedback", 8) == 0)
+          {
+            training_from_feedback ();
+            return;
+          }
         {
           size_t n = 0;
 
@@ -1935,7 +2237,7 @@ cmd_training_impl (const char *arg)
           }
         if (fromfile[0] == '\0')
           {
-            printf ("  usage: /entrainement --from FILE [--resume] "
+            printf ("  usage: /entrainement --from FILE|--from-feedback [--resume] "
                     "[--cron \"*/30 * * * *\"]\n");
             return;
           }
