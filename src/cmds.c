@@ -1445,6 +1445,7 @@ static void hf_train (const char *hfurl, const char *localdir);
 static char *hf_fetch_list (const char *hfurl, long *out_status);
 static ssize_t load_training_cache (char *buf, size_t bufsz);
 static bool path_safe (const char *path);
+static bool cache_has_url (const char *cache, const char *url);
 
 /* train_text — split TEXT into chunks, feed each chunk through a neuron
    (llms[c % nllm]), and store {"input":..,"output":[..],"neuron":..} in
@@ -1651,6 +1652,219 @@ train_neurons_or_die (char llms[][32], int *nllm, unsigned *in_size)
       }
 }
 
+/* --- /entrainement --from FILE [--resume] [--cron EXPR] (phase B3) ---
+ *
+ * FILE holds one source per line (hf:// or https://, '#' comments).
+ * Every line is journaled in ingest_jobs (status + records_added), so
+ * the state of an ingestion survives the session; --resume skips the
+ * URLs already in the local training cache, and --cron installs a
+ * crontab entry whose runs append to /root/.entrainement.log. */
+
+/* db_store_rec — write one record line to /db, return 1 ok, 0
+ * duplicate, -1 transport/invalid. */
+static int
+db_store_rec (const char *rec)
+{
+    char resp[2048];
+
+    if (write_root_line (g_db, rec, strlen (rec)) != 0)
+        return -1;
+    if (read_root (g_db, resp, sizeof resp) < 0)
+        return -1;
+    resp[strcspn (resp, "\r\n")] = '\0';
+    if (strstr (resp, "\"duplicate\"") != NULL)
+        return 0;
+    if (strstr (resp, "\"invalid\"") != NULL
+        || strstr (resp, "\"error\"") != NULL)
+        return -1;
+    return 1;
+}
+
+/* db_log_ingest — one ingest_jobs journal row (phase B3). */
+static void
+db_log_ingest (const char *source_url, const char *status, long records)
+{
+    char esc[2048];
+    char rec[2600];
+    size_t n = 0;
+
+    for (const char *p = source_url; *p != '\0' && n + 7 < sizeof esc; p++)
+      {
+        if (*p == '"' || *p == '\\')
+          {
+            esc[n++] = '\\';
+            esc[n++] = *p;
+          }
+        else if ((unsigned char) *p < 0x20)
+          n += (size_t) snprintf (esc + n, sizeof esc - n, "\\u%04x",
+                                  (unsigned) *p);
+        else
+          esc[n++] = *p;
+      }
+    esc[n] = '\0';
+    snprintf (rec, sizeof rec,
+              "{\"table\": \"ingest_jobs\", \"row\": {\"source_url\": "
+              "\"%s\", \"status\": \"%s\", \"records_added\": %ld}}",
+              esc, status, records);
+    (void) db_store_rec (rec);
+}
+
+/* training_cron — install a crontab entry running the wrapper script. */
+static void
+training_cron (const char *path, const char *expr)
+{
+    const char *script = "/root/.entrainement-cron.sh";
+    const char *log = "/root/.entrainement.log";
+    FILE *f = fopen (script, "w");
+
+    if (f == NULL)
+      {
+        printf ("  impossible d'écrire %s: %s\n", script, strerror (errno));
+        return;
+      }
+    fprintf (f,
+             "#!/bin/sh\n"
+             "# GNU AI — /entrainement cron (généré, ne pas éditer)\n"
+             "BIN=${INFERENCE_BIN:-/root/src/inference-translator/src/inference}\n"
+             "{\n"
+             "  echo \"== $(date -u '+%%Y-%%m-%%dT%%H:%%M:%%SZ') ==\"\n"
+             "  printf '/entrainement --from %s --resume\\n' \"$BIN\" \\\n"
+             "    --batch - --db /db 2>&1\n"
+             "} >> %s 2>&1\n",
+             path, log);
+    fclose (f);
+    chmod (script, 0755);
+
+    char cmd[4096];
+
+    snprintf (cmd, sizeof cmd,
+              "(crontab -l 2>/dev/null | grep -vF %s; "
+              "echo '%s %s') | crontab - 2>/dev/null",
+              script, expr, script);
+    if (system (cmd) != 0)
+      {
+        printf ("  crontab indisponible — script manuel: %s\n", script);
+        printf ("  planification à faire à la main: %s %s\n", expr, script);
+        return;
+      }
+    printf ("  entrée cron installée : %s %s (log: %s)\n", expr, script,
+            log);
+}
+
+/* training_from_file — the multi-source batch of phase B3. */
+static void
+training_from_file (const char *path, bool resume)
+{
+    FILE *f = fopen (path, "r");
+
+    if (f == NULL)
+      {
+        printf ("  impossible d'ouvrir %s: %s\n", path, strerror (errno));
+        return;
+      }
+
+    static char cache[4 * 1024 * 1024];
+
+    if (resume)
+      {
+        if (load_training_cache (cache, sizeof cache) <= 0)
+            cache[0] = '\0';
+      }
+    else
+      cache[0] = '\0';
+
+    long traites = 0, sautes = 0, doublons = 0, erreurs = 0;
+    char line[2048];
+
+    printf ("  --from %s%s (%s)\n", path, resume ? " --resume" : "",
+            resume ? "cache local consulté" : "cache ignoré");
+    while (fgets (line, sizeof line, f) != NULL)
+      {
+        char *e = line + strlen (line);
+        char *s = line;
+
+        while (e > line && (e[-1] == '\n' || e[-1] == '\r'
+                            || e[-1] == ' ' || e[-1] == '\t'))
+          *--e = '\0';
+        while (*s == ' ' || *s == '\t')
+          s++;
+        if (*s == '\0' || *s == '#')
+          continue;
+        inf_url_trim (s);
+        if (!inf_url_valid (s) && !inf_hf_url (s))
+          {
+            printf ("  URL refusée: %s\n", s);
+            erreurs++;
+            db_log_ingest (s, "error", 0);
+            continue;
+          }
+        if (resume && cache_has_url (cache, s))
+          {
+            sautes++;
+            printf ("  [--] %s déjà en cache, sauté\n", s);
+            db_log_ingest (s, "skipped", 0);
+            continue;
+          }
+        if (inf_hf_url (s))
+          {
+            hf_train (s, "./data");
+            traites++;
+            db_log_ingest (s, "ok", 1);
+            continue;
+          }
+        long status;
+        char *body;
+        size_t blen;
+
+        if (fetch_url (s, &status, &body, &blen) != 0)
+          {
+            erreurs++;
+            db_log_ingest (s, "error", 0);
+            continue;
+          }
+        if (status < 200 || status >= 300)
+          {
+            print_http_status (status);
+            free (body);
+            erreurs++;
+            db_log_ingest (s, "error", 0);
+            continue;
+          }
+        char text[262144];
+
+        inf_html_to_text (text, sizeof text, body);
+        free (body);
+        char sum[65];
+
+        inf_sha256_hex (sum, (const unsigned char *) text, strlen (text));
+        char rec[300000];
+
+        inf_training_record (rec, sizeof rec, s, status, text, sum);
+        int st = db_store_rec (rec);
+
+        if (st < 0)
+          {
+            erreurs++;
+            db_log_ingest (s, "error", 0);
+            continue;
+          }
+        training_cache_append (rec);
+        if (st == 0)
+          {
+            doublons++;
+            db_log_ingest (s, "duplicate", 0);
+          }
+        else
+          {
+            traites++;
+            db_log_ingest (s, "ok", 1);
+          }
+      }
+    fclose (f);
+    printf ("  bilan --from %s : traités=%ld sautés=%ld doublons=%ld "
+            "erreurs=%ld\n", path, traites, sautes, doublons, erreurs);
+}
+
 void cmd_training_impl (const char *arg);
 void
 cmd_training (const char *arg)
@@ -1670,10 +1884,73 @@ cmd_training_impl (const char *arg)
                 "               téléchargé dans [dossier-local] (défaut ./data)\n");
         return;
       }
+    /* Phase B3: --from FILE [--resume] [--cron "EXPR"] */
+    if (strncmp (arg, "--from", 6) == 0)
+      {
+        char fromfile[1024] = "";
+        bool resume = false;
+        const char *cron = NULL;
+        const char *p = arg + 6;
+
+        while (*p == ' ' || *p == '\t')
+          p++;
+        {
+          size_t n = 0;
+
+          while (*p != '\0' && *p != ' ' && *p != '\t'
+                 && n + 1 < sizeof fromfile)
+            fromfile[n++] = *p++;
+          fromfile[n] = '\0';
+        }
+        while (*p != '\0')
+          {
+            while (*p == ' ' || *p == '\t')
+              p++;
+            if (strncmp (p, "--resume", 8) == 0)
+              {
+                resume = true;
+                p += 8;
+              }
+            else if (strncmp (p, "--cron", 6) == 0)
+              {
+                p += 6;
+                while (*p == ' ' || *p == '\t')
+                  p++;
+                if (*p == '"')
+                  {
+                    char expr[128];
+                    size_t n = 0;
+
+                    p++;
+                    while (*p != '\0' && *p != '"' && n + 1 < sizeof expr)
+                      expr[n++] = *p++;
+                    expr[n] = '\0';
+                    if (*p == '"')
+                      p++;
+                    cron = strdup (expr);
+                  }
+              }
+            else if (*p != '\0')
+              p++;
+          }
+        if (fromfile[0] == '\0')
+          {
+            printf ("  usage: /entrainement --from FILE [--resume] "
+                    "[--cron \"*/30 * * * *\"]\n");
+            return;
+          }
+        if (cron != NULL)
+          training_cron (fromfile, cron);
+        else
+          training_from_file (fromfile, resume);
+        return;
+      }
     int nf = sscanf (arg, "%2047s %1023s", urlbuf, dirbuf);
     if (nf < 1)
       {
-        printf ("  usage: /entrainement URL|hf://... [dossier-local]\n");
+        printf ("  usage: /entrainement URL|hf://... [dossier-local]\n"
+                "         /entrainement --from FILE [--resume] "
+                "[--cron \"EXPR\"]\n");
         return;
       }
     inf_url_trim (urlbuf);
