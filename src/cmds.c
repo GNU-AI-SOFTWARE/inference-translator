@@ -201,6 +201,8 @@ find_httpfs (void)
         return "/usr/local/bin/httpfs";
     if (access ("/root/httpfs-translator/src/httpfs", X_OK) == 0)
         return "/root/httpfs-translator/src/httpfs";
+    if (access ("/root/src/httpfs-translator/src/httpfs", X_OK) == 0)
+        return "/root/src/httpfs-translator/src/httpfs";
     (void) buf;
     return "httpfs";
 }
@@ -1415,18 +1417,25 @@ neuron_input_size (const char *text)
 static int
 collect_neurons (char llms[][32], int *nllm, unsigned *in_size)
 {
-    char probe[8192];
     *nllm = 0;
     *in_size = 0;
     for (int i = 1; i <= 16 && *nllm < 16; i++)
       {
+        char probe[8192];
+
         snprintf (llms[*nllm], sizeof llms[0], "/llm%d", i);
-        if (read_root (llms[*nllm], probe, sizeof probe) >= 0)
+        if (read_root (llms[*nllm], probe, sizeof probe) > 0
+            && strstr (probe, "Neuron") != NULL)
+          {
+            /* Parse the input size from THIS neuron's status text:
+             * a failed read on a higher /llm<N> must not clobber it. */
+            if (*in_size == 0)
+                *in_size = neuron_input_size (probe);
             (*nllm)++;
+          }
       }
     if (*nllm == 0)
         return -1;
-    *in_size = neuron_input_size (probe);
     if (*in_size == 0 || *in_size > TRAIN_VEC_MAX)
         return -1;
     return 0;
@@ -1434,6 +1443,7 @@ collect_neurons (char llms[][32], int *nllm, unsigned *in_size)
 
 static void hf_train (const char *hfurl, const char *localdir);
 static char *hf_fetch_list (const char *hfurl, long *out_status);
+static ssize_t load_training_cache (char *buf, size_t bufsz);
 static bool path_safe (const char *path);
 
 /* train_text — split TEXT into chunks, feed each chunk through a neuron
@@ -1558,11 +1568,81 @@ train_text (const char *source_url, long http_status, const char *text,
     return nrec;
 }
 
+
+/* --- B1: ephemeral neuron -------------------------------------------
+ * /entrainement needs a mounted neuron (/llm1..N).  When none answers,
+ * mount one temporarily on /llm1 (default topology 2,4,1) and drop it
+ * when the ingestion is done, so the command works standalone. */
+static bool g_ephemeral_llm1 = false;
+
+/* find_neuron — locate the sigmoid-neuron-translator binary:
+ * $NEURON_BIN, then the usual build/install locations, then PATH. */
+static const char *
+find_neuron (void)
+{
+    const char *env = getenv ("NEURON_BIN");
+    if (env != NULL && env[0] != '\0' && access (env, X_OK) == 0)
+        return env;
+    if (access ("/root/src/neuron-translator/src/sigmoid-neuron-translator",
+                X_OK) == 0)
+        return "/root/src/neuron-translator/src/sigmoid-neuron-translator";
+    if (access ("/root/neuron-translator/src/sigmoid-neuron-translator",
+                X_OK) == 0)
+        return "/root/neuron-translator/src/sigmoid-neuron-translator";
+    if (access ("/usr/local/bin/sigmoid-neuron-translator", X_OK) == 0)
+        return "/usr/local/bin/sigmoid-neuron-translator";
+    return "sigmoid-neuron-translator";
+}
+
+/* ensure_ephemeral_neuron — mount a neuron on /llm1 when nothing is
+ * mounted there yet.  Returns 1 when /llm1 answers afterwards. */
+static int
+ensure_ephemeral_neuron (void)
+{
+    char probe[8192];
+    char b[2048];
+    char cmd[4600];
+
+    if (read_root ("/llm1", probe, sizeof probe) > 0
+        && strstr (probe, "Neuron") != NULL)
+        return 1;                       /* already mounted */
+    shell_quote (b, sizeof b, find_neuron ());
+    snprintf (cmd, sizeof cmd,
+              "settrans -g /llm1 2>/dev/null; rm -f /llm1; touch /llm1; "
+              "settrans -a /llm1 %s 2>/dev/null", b);
+    if (system (cmd) != 0)
+        return 0;
+    if (write_root_line ("/llm1", "2,4,1", 5) != 0)
+        return 0;
+    sleep (1);
+    if (read_root ("/llm1", probe, sizeof probe) <= 0
+        || strstr (probe, "Neuron") == NULL)
+        return 0;
+    g_ephemeral_llm1 = true;
+    printf ("  neurone éphémère monté sur /llm1 (%s)\n", b);
+    return 1;
+}
+
+/* release_ephemeral_neuron — drop the /llm1 mount we created. */
+static void
+release_ephemeral_neuron (void)
+{
+    if (g_ephemeral_llm1)
+      {
+        system ("settrans -g /llm1 2>/dev/null");
+        g_ephemeral_llm1 = false;
+      }
+}
+
 static void
 train_neurons_or_die (char llms[][32], int *nllm, unsigned *in_size)
 {
     if (collect_neurons (llms, nllm, in_size) != 0)
       {
+        /* B1: no instance mounted — try an ephemeral one on /llm1. */
+        if (ensure_ephemeral_neuron ()
+            && collect_neurons (llms, nllm, in_size) == 0)
+            return;
         printf ("  aucun neurone monté (/llm1..N) ou entrée illisible : "
                 "/entrainement fait passer chaque extrait par le "
                 "neuron-translator\n"
@@ -1571,8 +1651,15 @@ train_neurons_or_die (char llms[][32], int *nllm, unsigned *in_size)
       }
 }
 
+void cmd_training_impl (const char *arg);
 void
 cmd_training (const char *arg)
+{
+    cmd_training_impl (arg);
+    release_ephemeral_neuron ();
+}
+void
+cmd_training_impl (const char *arg)
 {
     char urlbuf[2048], dirbuf[1024] = "";
     if (arg == NULL || *arg == '\0')
@@ -1782,8 +1869,26 @@ hf_ingest_text (const char *source_url, long http_status, const char *text)
     return nrec;
 }
 
+/* B2: the httpfs window caps one read at 64 KiB — a bigger file is
+ * truncated; such a record is stored with http_status 206 (partial),
+ * never silently as a complete 200. */
+#define HF_WINDOW_MAX 65536
+
+/* cache_has_url — resume support: true when the cache NDJSON already
+ * carries a record for this source URL. */
+static bool
+cache_has_url (const char *cache, const char *url)
+{
+    char needle[2200];
+
+    if (snprintf (needle, sizeof needle, "\"source_url\":\"%s\"", url)
+        >= (int) sizeof needle)
+        return false;
+    return strstr (cache, needle) != NULL;
+}
+
 static void
-hf_sync (const char *hfurl, const char *localdir)
+hf_sync (const char *hfurl, const char *localdir, bool resume)
 {
     char kind[16], owner[256], repo[256], prefix[1024];
     if (!inf_hf_parse (hfurl, kind, sizeof kind, owner, sizeof owner,
@@ -1806,7 +1911,24 @@ hf_sync (const char *hfurl, const char *localdir)
     if (tree == NULL)
         return;
     size_t n = inf_json_array_count (tree);
-    size_t nfiles = 0, nrec = 0;
+    size_t nfiles = 0, nrec = 0, nskip = 0;
+    static char cache[4 * 1024 * 1024];
+    if (resume)
+      {
+        ssize_t cn = load_training_cache (cache, sizeof cache);
+
+        size_t nlines = 0;
+
+        if (cn <= 0)
+            cache[0] = '\0';
+        else
+            for (const char *q = cache; *q != '\0'; q++)
+                if (*q == '\n')
+                    nlines++;
+        printf ("  --resume : %zu enregistrement(s) déjà en cache\n", nlines);
+      }
+    else
+        cache[0] = '\0';
     printf ("  sync de %s vers %s (%zu entrée(s))\n", hfurl, localdir, n);
     for (size_t i = 0; i < n && i < 200; i++)
       {
@@ -1823,6 +1945,14 @@ hf_sync (const char *hfurl, const char *localdir)
         char resolve[2048];
         if (inf_hf_resolve_url (hfurl, path, resolve, sizeof resolve) == 0)
             continue;
+        if (resume && cache_has_url (cache, resolve))
+          {
+            nskip++;
+            printf ("  [--] %s déjà ingéré, sauté\n", path);
+            continue;
+          }
+        double fsize = 0;
+        (void) inf_json_num_field (obj, "size", &fsize);
         char *body;
         size_t blen;
         long fstatus;
@@ -1858,18 +1988,26 @@ hf_sync (const char *hfurl, const char *localdir)
               }
             close (fd);
           }
-        /* convert the training data into DB-readable records */
+        /* convert the training data into DB-readable records; a file
+         * larger than the httpfs window arrives truncated: mark it
+         * 206 so the base never stores a partial body as complete. */
+        long rec_status = fstatus;
+        bool truncated = fsize > HF_WINDOW_MAX || blen >= HF_WINDOW_MAX;
+
+        if (truncated)
+            rec_status = 206;
         char text[262144];
         inf_html_to_text (text, sizeof text, body);
-        nrec += hf_ingest_text (resolve, fstatus, text);
+        nrec += hf_ingest_text (resolve, rec_status, text);
         free (body);
         nfiles++;
-        printf ("  [%zu/%zu] %s -> %s (%zu octets)\n", nfiles, n, path, lp,
-                blen);
+        printf ("  [%zu/%zu] %s -> %s (%zu octets%s)\n", nfiles, n, path,
+                lp, blen, truncated ? ", tronqué (206)" : "");
       }
     free (tree);
-    printf ("  sync terminé: %zu fichier(s), %zu enregistrement(s) dans /db\n",
-            nfiles, nrec);
+    printf ("  sync terminé: %zu fichier(s), %zu enregistrement(s) dans /db"
+            "%s%zu sauté(s)\n",
+            nfiles, nrec, resume ? ", " : "", nskip);
 }
 
 void
@@ -1884,23 +2022,42 @@ cmd_hf (const char *arg)
                 "   les fichiers en enregistrements /db training_data)\n");
         return;
       }
+    /* tokenize: "--resume" may appear anywhere; url is the hf:// token,
+     * dir the remaining non-flag token. */
     char sub[16] = "", url[2048] = "", dir[1024] = "";
-    int nf = sscanf (arg, "%15s %2047s %1023s", sub, url, dir);
-    if (nf < 2)
+    bool resume = false;
+    {
+        char tmp[4200];
+        snprintf (tmp, sizeof tmp, "%s", arg);
+        char *save = NULL;
+        for (char *tok = strtok_r (tmp, " \t", &save);
+             tok != NULL; tok = strtok_r (NULL, " \t", &save))
+          {
+            if (strcmp (tok, "--resume") == 0)
+                resume = true;
+            else if (sub[0] == '\0')
+                snprintf (sub, sizeof sub, "%s", tok);
+            else if (strncmp (tok, "hf://", 5) == 0 && url[0] == '\0')
+                snprintf (url, sizeof url, "%s", tok);
+            else if (dir[0] == '\0')
+                snprintf (dir, sizeof dir, "%s", tok);
+          }
+    }
+    if (sub[0] == '\0' || url[0] == '\0')
       {
-        printf ("  usage: /hf list <hf://...>  ou  /hf sync <hf://...> <dossier>\n");
+        printf ("  usage: /hf list <hf://...>  ou  /hf sync [--resume] <hf://...> <dossier>\n");
         return;
       }
     if (strcmp (sub, "list") == 0)
         hf_list (url);
     else if (strcmp (sub, "sync") == 0)
       {
-        if (nf < 3)
+        if (dir[0] == '\0')
           {
-            printf ("  usage: /hf sync <hf://...> <dossier-local>\n");
+            printf ("  usage: /hf sync [--resume] <hf://...> <dossier-local>\n");
             return;
           }
-        hf_sync (url, dir);
+        hf_sync (url, dir, resume);
       }
     else
         printf ("  sous-commande inconnue: %s (list | sync)\n", sub);
@@ -2206,8 +2363,15 @@ cmd_db (const char *arg)
    hf:// repo into localdir (default ./data, like `hf sync ./data hf://…`),
    then feed the content of each file through the neuron translator and
    store {input, output, neuron} records in /db + the local cache. */
+static void hf_train_impl (const char *hfurl, const char *localdir);
 static void
 hf_train (const char *hfurl, const char *localdir)
+{
+    hf_train_impl (hfurl, localdir);
+    release_ephemeral_neuron ();
+}
+static void
+hf_train_impl (const char *hfurl, const char *localdir)
 {
     char kind[16], owner[256], repo[256], prefix[1024];
     if (!inf_hf_parse (hfurl, kind, sizeof kind, owner, sizeof owner,

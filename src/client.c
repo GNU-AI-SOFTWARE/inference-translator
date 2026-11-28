@@ -473,7 +473,7 @@ main (int argc, char **argv)
         else if (strcmp (argv[i], "--batch") == 0)
           {
             /* optional value: --batch FILE, or --batch (stdin) */
-            if (i + 1 < argc && argv[i + 1][0] != '-')
+            if (i + 1 < argc && (argv[i + 1][0] != '-' || strcmp (argv[i + 1], "-") == 0))
                 g_batch = argv[++i];
             else
                 g_batch = "-";
