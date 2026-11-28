@@ -46,6 +46,19 @@ M="$D/inference"
 mkdir -p "$M"
 printf 'idle' > "$M/status"
 
+# Wait until a file holds the expected content: when the mount point is a
+# real translator (GNU/Hurd CI), writes are applied by the server
+# asynchronously and can lag behind the client's exit, especially under
+# TCG emulation.
+wait_file() { # FILE EXPECTED
+    _i=0
+    while [ "$_i" -lt 100 ]; do
+        [ "$(cat "$1" 2>/dev/null)" = "$2" ] && return 0
+        _i=$((_i + 1)); sleep 0.1
+    done
+    return 1
+}
+
 # --- non-TTY refusal ------------------------------------------------
 
 "$BIN" --mount "$M" </dev/null >/dev/null 2>"$D/err"
@@ -63,7 +76,7 @@ grep -q 'inference (GNU AI)' "$D/out.clean" || fail "banner missing"
 grep -q "read $M/status" "$D/out.clean" || fail "narration read status missing"
 grep -q "write $M/prompt" "$D/out.clean" || fail "narration write prompt missing"
 grep -q "read $M/request" "$D/out.clean" || fail "request narration missing"
-[ "$(cat "$M/prompt" 2>/dev/null)" = "bonjour https://example.org" ] \
+wait_file "$M/prompt" "bonjour https://example.org" \
     || fail "/submit must write the buffer to <mount>/prompt, got '$(cat "$M/prompt" 2>/dev/null)'"
 
 # --- /task validation -------------------------------------------------
@@ -73,8 +86,8 @@ printf '/task bogus\n/task summarize\n/quit\n' \
 sed 's/\x1b\[[0-9;]*m//g' "$D/out2" > "$D/out2.clean"
 grep -q 'tâche inconnue' "$D/out2.clean" || fail "/task bogus must be refused"
 grep -q "write $M/task" "$D/out2.clean" || fail "/task must narrate the task node"
-[ "$(cat "$M/task" 2>/dev/null)" = "summarize" ] \
-    || fail "/task summarize must write <mount>/task"
+wait_file "$M/task" "summarize" \
+    || fail "/task summarize must write <mount>/task, got '$(cat "$M/task" 2>/dev/null)'"
 
 # --- /editor with a fake $VISUAL --------------------------------------
 
@@ -94,8 +107,8 @@ printf '/editor\n/submit\n/quit\n' \
     | pty "$BIN --mount $M" >"$D/out3" 2>&1
 sed 's/\x1b\[[0-9;]*m//g' "$D/out3" > "$D/out3.clean"
 grep -q 'buffer relu' "$D/out3.clean" || fail "/editor must re-read the buffer on exit 0"
-[ "$(cat "$M/prompt" 2>/dev/null)" = "édité dans \$VISUAL" ] \
-    || fail "/editor exit 0: submitted prompt must be the edited buffer"
+wait_file "$M/prompt" 'édité dans $VISUAL' \
+    || fail "/editor exit 0: submitted prompt must be the edited buffer, got '$(cat "$M/prompt" 2>/dev/null)'"
 
 export VISUAL="$D/fake-editor-ko.sh"
 printf 'texte avant\n/editor\n/submit\n/quit\n' \
@@ -103,8 +116,8 @@ printf 'texte avant\n/editor\n/submit\n/quit\n' \
 sed 's/\x1b\[[0-9;]*m//g' "$D/out4" > "$D/out4.clean"
 unset VISUAL
 grep -q 'buffer inchangé' "$D/out4.clean" || fail "/editor exit!=0 must keep the buffer"
-[ "$(cat "$M/prompt" 2>/dev/null)" = "texte avant" ] \
-    || fail "/editor exit!=0: submitted prompt must stay the previous buffer"
+wait_file "$M/prompt" "texte avant" \
+    || fail "/editor exit!=0: submitted prompt must stay the previous buffer, got '$(cat "$M/prompt" 2>/dev/null)'"
 
 if [ "$FAIL" = 1 ]; then
     # self-diagnosis: show what the pty sessions actually captured, so a

@@ -14,7 +14,9 @@
  * The child gets the pty as its controlling terminal (setsid + open
  * of the slave without O_NOCTTY), so isatty(0) && isatty(1) hold and
  * the interactive client starts.  Exit status: the child's exit
- * status, or 124 when the 60 s watchdog fires.
+ * status, or 124 when the watchdog fires (PTYRUN_TIMEOUT seconds,
+ * default 600: the GNU/Hurd CI VM runs under TCG and a pty session can
+ * legitimately take longer than the old 60 s default).
  */
 
 #define _XOPEN_SOURCE 700
@@ -67,7 +69,10 @@ main (int argc, char **argv)
   DBG ("master=%d slave=%s\n", master, slave_name);
 
   signal (SIGALRM, on_alarm);
-  alarm (60);
+  {
+    const char *to = getenv ("PTYRUN_TIMEOUT");
+    alarm (to != NULL ? (unsigned int) atoi (to) : 600);
+  }
 
   child_pid = fork ();
   if (child_pid < 0)
