@@ -541,11 +541,73 @@ inf_training_answer (const char *ndjson, const char *query,
                         s++;
                         sl--;
                       }
-                    if (sl >= ANSWER_SENT_MIN && sl < ANSWER_SENT_LEN)
+                    if (sl >= ANSWER_SENT_MIN)
                       {
                         char one[ANSWER_SENT_LEN];
-                        memcpy (one, s, sl);
-                        one[sl] = '\0';
+                        if (sl < ANSWER_SENT_LEN)
+                          {
+                            memcpy (one, s, sl);
+                            one[sl] = '\0';
+                          }
+                        else if (sl < 300000)
+                          {
+                            /* long run without punctuation (a raw
+                               transcript chunk): keep a window around the
+                               first query-word hit instead of dropping it */
+                            char *seg = malloc (sl + 1);
+                            if (seg != NULL)
+                              {
+                                memcpy (seg, s, sl);
+                                seg[sl] = '\0';
+                                char *low = lowercase_dup (seg);
+                                size_t pos = 0;
+                                bool hit = false;
+                                if (low != NULL)
+                                  for (size_t i = 0; i < nw && !hit; i++)
+                                    {
+                                      const char *h = strstr (low, words[i]);
+                                      if (h != NULL)
+                                        {
+                                          pos = (size_t) (h - low);
+                                          hit = true;
+                                        }
+                                    }
+                                size_t start = hit && pos > 40 ? pos - 40 : 0;
+                                size_t end = sl;
+                                if (end > start + 240)
+                                    end = start + 240;
+                                while (end < sl && seg[end] != ' ')
+                                    end++;
+                                while (start > 0 && seg[start - 1] != ' ')
+                                    start++;
+                                size_t wl = end - start;
+                                if (wl >= ANSWER_SENT_LEN - 4)
+                                    wl = ANSWER_SENT_LEN - 4;
+                                memcpy (one, seg + start, wl);
+                                size_t ol = wl;
+                                if (end < sl)
+                                  {
+                                    one[ol++] = (char) 0xe2;
+                                    one[ol++] = (char) 0x80;
+                                    one[ol++] = (char) 0xa6;
+                                  }
+                                one[ol] = '\0';
+                                free (low);
+                                free (seg);
+                              }
+                            else
+                              {
+                                size_t wl = ANSWER_SENT_LEN - 4;
+                                memcpy (one, s, wl);
+                                one[wl] = '\0';
+                              }
+                          }
+                        else
+                          {
+                            size_t wl = ANSWER_SENT_LEN - 4;
+                            memcpy (one, s, wl);
+                            one[wl] = '\0';
+                          }
                         double ssc = training_score_idf (one, words, nw, df,
                                                          nrec);
                         if (ssc > 0)

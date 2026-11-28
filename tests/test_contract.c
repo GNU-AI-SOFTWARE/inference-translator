@@ -258,6 +258,14 @@ main (void)
     al = inf_training_answer (ndjson, "noyau microkernel GNU", ans, 10, 3);
     check ("tiny output buffer stays bounded and NUL-terminated",
            al < 10 && ans[al] == '\0');
+    char longrec[4096] = "{\"content\":\"";
+    for (int i = 0; i < 40; i++)
+        strcat (longrec, "[speaker001:] UBS bonjour [speaker002:] oui bonjour ");
+    strcat (longrec, "\",\"source_url\":\"https://example.org/ubs\"}\n");
+    al = inf_training_answer (longrec, "bonjour", ans, sizeof ans, 3);
+    check ("long punctuation-less record yields a window around the hit",
+           al > 0 && strstr (ans, "bonjour") != NULL
+           && strstr (ans, "\xe2\x80\xa6") != NULL && al < 300);
 
     /* --- Frozen tables ------------------------------------------- */
 

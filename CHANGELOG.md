@@ -25,7 +25,9 @@ par un bump de `version`.
   `inf_training_answer` (`src/training.c`) compose une réponse courte et
   ancrée à partir des meilleures phrases (score IDF des mots de la
   question) des enregistrements NDJSON correspondants, citée avec leur
-  `source_url`. Le dump brut reste le repli si aucune phrase ne matche.
+  `source_url`. Les passages sans ponctuation (transcripts) sont fenêtrés
+  (~240 caractères) autour du premier mot de la question, suivis de « … ».
+  Le dump brut reste le repli si aucune phrase ne matche.
 
 ### Modifié
 
