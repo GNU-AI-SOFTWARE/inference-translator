@@ -232,6 +232,33 @@ main (void)
       }
     check ("sand conserved (8 grains in every frame)", conserved);
 
+    /* --- inf_training_answer: composed grounded reply -------------- */
+
+    const char *ndjson =
+        "{\"content\":\"Le Hurd est un noyau microkernel d\u00e9velopp\u00e9 par le projet GNU. Il repose sur Mach.\",\"source_url\":\"https://example.org/hurd\"}\n"
+        "{\"content\":\"Les bonjours du matin sont des dialogues t\u00e9l\u00e9phoniques enregistr\u00e9s \u00e0 l'IUT de Vannes. Ils servent de corpus d'entra\u00eenement.\",\"source_url\":\"https://example.org/ubs\"}\n"
+        "{\"content\":\"Rien d'int\u00e9ressant ici sur la cuisine.\",\"source_url\":\"https://example.org/cuisine\"}\n";
+    char ans[4096];
+    size_t al = inf_training_answer (ndjson, "noyau microkernel GNU",
+                                     ans, sizeof ans, 3);
+    check ("answer composed from the matching record",
+           al > 0 && strstr (ans, "microkernel") != NULL);
+    check ("answer excludes the non-matching records",
+           strstr (ans, "cuisine") == NULL && strstr (ans, "Vannes") == NULL);
+    check ("answer bounded and NUL-terminated",
+           al < sizeof ans && ans[al] == '\0');
+    al = inf_training_answer (ndjson, "bonjour", ans, sizeof ans, 3);
+    check ("single-word query matches its own record",
+           al > 0 && strstr (ans, "Vannes") != NULL);
+    al = inf_training_answer (ndjson, "", ans, sizeof ans, 3);
+    check ("empty query returns 0", al == 0);
+    al = inf_training_answer (ndjson, "question sans aucun mot connu xyzq",
+                             ans, sizeof ans, 3);
+    check ("no matching sentence returns 0", al == 0);
+    al = inf_training_answer (ndjson, "noyau microkernel GNU", ans, 10, 3);
+    check ("tiny output buffer stays bounded and NUL-terminated",
+           al < 10 && ans[al] == '\0');
+
     /* --- Frozen tables ------------------------------------------- */
 
     /* phase B4 added /good and /bad: 22 slash commands */
