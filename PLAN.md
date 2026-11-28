@@ -647,6 +647,26 @@ phases sont prioritaires.
   `.nn` v2 chargeable (`echo 'load /tmp/model.nn' | tee /llm1`) — la
   boucle se ferme : `/db` → `.nn` → `/llm1…N` → `/reply`.
 
+### Phase 12 — Réponses façon LLM même sans cluster (délivrée, hors-ligne)
+
+- Hors cluster (aucun `/llm<N>` monté), `/reply` ne dump plus
+  l'enregistrement brut tronqué à 2000 caractères :
+  `inf_training_answer` (`src/training.c`) compose une réponse courte
+  et ancrée — les meilleures phrases (score IDF des mots de la
+  question) des enregistrements NDJSON correspondants, ou une fenêtre
+  d'environ 240 caractères autour du premier mot-clé pour les
+  transcripts sans ponctuation — citée avec le `source_url` du record.
+- Le chemin neurone (`/llm1…N` via l'orchestrateur, phases 9–10) reste
+  la réponse LLM « pleine » ; cette phase est le palier hors-ligne,
+  livrée en attendant.
+- **Livrable** : `inf_training_answer` + 8 tests de contrat
+  (`test_contract` 44/44 OK), CHANGELOG à jour.
+- **Acceptation** : `make check` vert ; en `--batch` sur un cache NDJSON
+  connu, `/reply <question>` renvoie `réponse (ancrée sur <url>) :
+  <phrase courte>` et jamais le dump brut.
+- **Dépend de** : rien (fonctionne hors-ligne) ; remplacé à terme par
+  les phases 9–10 quand `/db` + `/llm1…N` sont servis.
+
 ---
 
 ## 6. Contraintes et conventions techniques

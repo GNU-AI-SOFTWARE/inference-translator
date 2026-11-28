@@ -18,6 +18,17 @@ par un bump de `version`.
 
 ## [Unreleased]
 
+### Ajouté
+
+- **`/reply` façon LLM même sans neurone** : quand aucun `/llm<N>` n'est
+  monté, la réponse n'est plus l'extrait brut tronqué à 2000 caractères :
+  `inf_training_answer` (`src/training.c`) compose une réponse courte et
+  ancrée à partir des meilleures phrases (score IDF des mots de la
+  question) des enregistrements NDJSON correspondants, citée avec leur
+  `source_url`. Les passages sans ponctuation (transcripts) sont fenêtrés
+  (~240 caractères) autour du premier mot de la question, suivis de « … ».
+  Le dump brut reste le repli si aucune phrase ne matche.
+
 ### Modifié
 
 - **Reset de version à 0.1.0** : la v1.0.0 avait été coupée par le tail d'un

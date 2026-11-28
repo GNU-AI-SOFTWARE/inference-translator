@@ -511,6 +511,16 @@ size_t inf_json_array_object (const char *json, size_t idx,
 size_t inf_training_search_list (const char *ndjson, const char *query,
                                  char *out, size_t outsz, size_t max_hits);
 
+/* inf_training_answer: compose a short grounded answer from the NDJSON
+ * training records: the best-scoring sentences (IDF over the query
+ * words, as in inf_training_search) of the matching records, deduplicated
+ * and joined with spaces, at most MAX_SENT of them.  This is the
+ * LLM-like fallback of /reply when no /llm<N> neuron is mounted.
+ * Bounded, NUL-terminated, returns the length written (0 when no
+ * sentence of at least 20 characters matches the query). */
+size_t inf_training_answer (const char *ndjson, const char *query,
+                            char *out, size_t outsz, size_t max_sent);
+
 /* --- One-line machine usage (info line above the prompt) ------------ */
 /* inf_client_stats_line: compact single-line CPU/memory snapshot for
  * the persistent info line ("CPU 12.3 % | MEM 456/2048 Mio (22.3 %)"),

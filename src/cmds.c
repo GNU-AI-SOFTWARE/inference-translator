@@ -1117,6 +1117,17 @@ cmd_reply (const char *arg)
             printf ("  neurone %s indisponible — repli sur le cache\n", llm);
           }
     }
+    /* LLM-like fallback when no /llm<N> neuron is mounted: compose a
+       short grounded answer from the best-matching sentences of the
+       training records instead of dumping the raw record below. */
+    char answer[4096];
+    if (inf_training_answer (cache, query, answer, sizeof answer, 3) > 0)
+      {
+        printf ("  réponse (ancrée sur %s) : %s\n",
+                url[0] != '\0' ? url : "cache local", answer);
+        note_last_reply (query, answer, url);
+        return;
+      }
     printf ("  réponse d'après les données d'entraînement (%s) :\n",
             url[0] != '\0' ? url : "cache local");
     if (reply != NULL)

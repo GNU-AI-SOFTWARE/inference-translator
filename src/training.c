@@ -474,6 +474,216 @@ inf_training_search_list (const char *ndjson, const char *query,
     return hits;
 }
 
+/* --- /reply LLM-like fallback: compose an answer from sentences ------- */
+
+#define ANSWER_SENT_MAX 8
+#define ANSWER_SENT_LEN 1024
+#define ANSWER_SENT_MIN 20
+
+/* inf_training_answer: score every sentence of every matching record
+   (IDF over the query words, same as inf_training_search) and keep the
+   MAX_SENT best distinct ones, best first, joined with spaces in OUT. */
+size_t
+inf_training_answer (const char *ndjson, const char *query,
+                     char *out, size_t outsz, size_t max_sent)
+{
+    if (out == NULL || outsz == 0)
+        return 0;
+    out[0] = '\0';
+    if (ndjson == NULL || query == NULL || *query == '\0' || max_sent == 0)
+        return 0;
+    char words[QWORDS_MAX][64];
+    size_t nw = collect_query_words (query, words, QWORDS_MAX);
+    if (nw == 0)
+        return 0;
+    size_t df[QWORDS_MAX] = { 0 };
+    size_t nrec = count_df (ndjson, words, nw, df);
+    if (max_sent > ANSWER_SENT_MAX)
+        max_sent = ANSWER_SENT_MAX;
+
+    double sc[ANSWER_SENT_MAX];
+    char sent[ANSWER_SENT_MAX][ANSWER_SENT_LEN];
+    size_t nbest = 0;
+
+    const char *p = ndjson;
+    while (*p != '\0')
+      {
+        const char *eol = strchr (p, '\n');
+        size_t llen = eol != NULL ? (size_t) (eol - p) : strlen (p);
+        if (llen > 0 && llen < 300000)
+          {
+            char line[300000];
+            memcpy (line, p, llen);
+            line[llen] = '\0';
+            char content[262144] = "";
+            if (inf_json_str_field (line, "content", content,
+                                    sizeof content) != 0)
+                inf_json_str_field (line, "output", content,
+                                    sizeof content);
+            if (content[0] != '\0'
+                && training_score_idf (content, words, nw, df, nrec) > 0)
+              {
+                const char *s = content;
+                while (*s != '\0')
+                  {
+                    const char *e = s;
+                    while (*e != '\0' && *e != '\n'
+                           && *e != '.' && *e != '!' && *e != '?')
+                        e++;
+                    if (*e == '.' || *e == '!' || *e == '?')
+                        e++;
+                    size_t sl = (size_t) (e - s);
+                    while (sl > 0 && (s[sl - 1] == ' ' || s[sl - 1] == '\t'
+                                      || s[sl - 1] == '\r'))
+                        sl--;
+                    while (sl > 0 && (s[0] == ' ' || s[0] == '\t'))
+                      {
+                        s++;
+                        sl--;
+                      }
+                    if (sl >= ANSWER_SENT_MIN)
+                      {
+                        char one[ANSWER_SENT_LEN];
+                        if (sl < ANSWER_SENT_LEN)
+                          {
+                            memcpy (one, s, sl);
+                            one[sl] = '\0';
+                          }
+                        else if (sl < 300000)
+                          {
+                            /* long run without punctuation (a raw
+                               transcript chunk): keep a window around the
+                               first query-word hit instead of dropping it */
+                            char *seg = malloc (sl + 1);
+                            if (seg != NULL)
+                              {
+                                memcpy (seg, s, sl);
+                                seg[sl] = '\0';
+                                char *low = lowercase_dup (seg);
+                                size_t pos = 0;
+                                bool hit = false;
+                                if (low != NULL)
+                                  for (size_t i = 0; i < nw && !hit; i++)
+                                    {
+                                      const char *h = strstr (low, words[i]);
+                                      if (h != NULL)
+                                        {
+                                          pos = (size_t) (h - low);
+                                          hit = true;
+                                        }
+                                    }
+                                size_t start = hit && pos > 40 ? pos - 40 : 0;
+                                size_t end = sl;
+                                if (end > start + 240)
+                                    end = start + 240;
+                                while (end < sl && seg[end] != ' ')
+                                    end++;
+                                while (start > 0 && seg[start - 1] != ' ')
+                                    start++;
+                                size_t wl = end - start;
+                                if (wl >= ANSWER_SENT_LEN - 4)
+                                    wl = ANSWER_SENT_LEN - 4;
+                                memcpy (one, seg + start, wl);
+                                size_t ol = wl;
+                                if (end < sl)
+                                  {
+                                    one[ol++] = (char) 0xe2;
+                                    one[ol++] = (char) 0x80;
+                                    one[ol++] = (char) 0xa6;
+                                  }
+                                one[ol] = '\0';
+                                free (low);
+                                free (seg);
+                              }
+                            else
+                              {
+                                size_t wl = ANSWER_SENT_LEN - 4;
+                                memcpy (one, s, wl);
+                                one[wl] = '\0';
+                              }
+                          }
+                        else
+                          {
+                            size_t wl = ANSWER_SENT_LEN - 4;
+                            memcpy (one, s, wl);
+                            one[wl] = '\0';
+                          }
+                        double ssc = training_score_idf (one, words, nw, df,
+                                                         nrec);
+                        if (ssc > 0)
+                          {
+                            bool dup = false;
+                            for (size_t i = 0; i < nbest; i++)
+                                if (strcmp (sent[i], one) == 0)
+                                  {
+                                    dup = true;
+                                    break;
+                                  }
+                            if (!dup)
+                              {
+                                if (nbest < max_sent)
+                                  {
+                                    sc[nbest] = ssc;
+                                    memcpy (sent[nbest], one, sl + 1);
+                                    nbest++;
+                                  }
+                                else
+                                  {
+                                    size_t worst = 0;
+                                    for (size_t i = 1; i < nbest; i++)
+                                        if (sc[i] < sc[worst])
+                                            worst = i;
+                                    if (ssc > sc[worst])
+                                      {
+                                        sc[worst] = ssc;
+                                        memcpy (sent[worst], one, sl + 1);
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                    s = e;
+                    while (*s == ' ' || *s == '\t' || *s == '\r'
+                           || *s == '\n')
+                        s++;
+                  }
+              }
+          }
+        p = eol != NULL ? eol + 1 : p + llen;
+      }
+    if (nbest == 0)
+        return 0;
+    /* best sentence first */
+    for (size_t i = 1; i < nbest; i++)
+      {
+        double s = sc[i];
+        char tmp[ANSWER_SENT_LEN];
+        memcpy (tmp, sent[i], ANSWER_SENT_LEN);
+        size_t j = i;
+        while (j > 0 && sc[j - 1] < s)
+          {
+            sc[j] = sc[j - 1];
+            memcpy (sent[j], sent[j - 1], ANSWER_SENT_LEN);
+            j--;
+          }
+        sc[j] = s;
+        memcpy (sent[j], tmp, ANSWER_SENT_LEN);
+      }
+    size_t w = 0;
+    for (size_t i = 0; i < nbest; i++)
+      {
+        size_t sl = strlen (sent[i]);
+        if (w + sl + 2 >= outsz)
+            break;
+        if (w > 0)
+            out[w++] = ' ';
+        memcpy (out + w, sent[i], sl);
+        w += sl;
+      }
+    out[w] = '\0';
+    return w;
+}
+
 /* --- /hf: Hugging Face hf:// URLs over plain HTTP --------------------- */
 
 bool
